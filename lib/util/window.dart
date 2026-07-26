@@ -276,6 +276,9 @@ class WindowUtil {
   }
 
   static void _scheduleMacOSTrayDebugDumps() {
+    if (!lDebugMode) {
+      return;
+    }
     List<Duration> delays = <Duration>[
       const Duration(seconds: 1),
       const Duration(seconds: 5),

@@ -54,11 +54,11 @@ class _ImportScreenState extends State<ImportScreen> {
     ];
   }
 
-  bool get _allFilteredSelected {
-    List<DiscoveredRepo> filtered = _filteredRepos;
-    return filtered.isNotEmpty &&
-        filtered.every((repo) => _selectedKeys.contains(repo.selectionKey));
-  }
+  bool _allRepositoriesSelected(List<DiscoveredRepo> repositories) =>
+      repositories.isNotEmpty &&
+      repositories.every(
+        (repo) => _selectedKeys.contains(repo.selectionKey),
+      );
 
   @override
   void initState() {
@@ -177,8 +177,9 @@ class _ImportScreenState extends State<ImportScreen> {
 
   void _toggleSelectAll() {
     List<DiscoveredRepo> filtered = _filteredRepos;
+    bool allSelected = _allRepositoriesSelected(filtered);
     setState(() {
-      if (_allFilteredSelected) {
+      if (allSelected) {
         _selectedKeys = <String>{};
       } else {
         _selectedKeys = <String>{
@@ -222,6 +223,9 @@ class _ImportScreenState extends State<ImportScreen> {
   @override
   Widget build(BuildContext context) {
     ScanResult? result = _result;
+    List<DiscoveredRepo> filteredRepositories =
+        result == null ? const <DiscoveredRepo>[] : _filteredRepos;
+    bool allFilteredSelected = _allRepositoriesSelected(filteredRepositories);
     return AlembicScaffold(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -249,7 +253,7 @@ class _ImportScreenState extends State<ImportScreen> {
                   )
                 : _ImportResultsView(
                     result: result,
-                    repos: _filteredRepos,
+                    repos: filteredRepositories,
                     filterController: _filterController,
                     onFilterChanged: (value) {
                       setState(() {
@@ -262,7 +266,7 @@ class _ImportScreenState extends State<ImportScreen> {
                         _onlyGitHub = value;
                       });
                     },
-                    allSelected: _allFilteredSelected,
+                    allSelected: allFilteredSelected,
                     onToggleSelectAll: _toggleSelectAll,
                     selectedKeys: _selectedKeys,
                     onToggleRepo: _toggleRepo,
@@ -491,30 +495,35 @@ class _ImportResultsView extends StatelessWidget {
             child: AlembicSurface(
               tone: AlembicSurfaceTone.inset,
               padding: AlembicShadcnTokens.compactSurfacePadding,
-              child: m.ListView(
-                children: <Widget>[
-                  if (repos.isEmpty)
-                    const _ImportNoMatchesRow()
-                  else
-                    for (DiscoveredRepo repo in repos)
-                      Padding(
-                        padding: const EdgeInsets.only(
-                          bottom: AlembicShadcnTokens.gapXs,
-                        ),
-                        child: _ImportRepoRow(
-                          repo: repo,
-                          selected: selectedKeys.contains(repo.selectionKey),
-                          onToggle: () => onToggleRepo(repo),
-                        ),
-                      ),
-                  for (String warning in result.warnings)
-                    Padding(
+              child: m.ListView.builder(
+                itemCount:
+                    (repos.isEmpty ? 1 : repos.length) + result.warnings.length,
+                itemBuilder: (context, index) {
+                  int repositoryCount = repos.isEmpty ? 1 : repos.length;
+                  if (index < repositoryCount) {
+                    if (repos.isEmpty) {
+                      return const _ImportNoMatchesRow();
+                    }
+                    DiscoveredRepo repo = repos[index];
+                    return Padding(
                       padding: const EdgeInsets.only(
                         bottom: AlembicShadcnTokens.gapXs,
                       ),
-                      child: _ImportWarningRow(warning: warning),
+                      child: _ImportRepoRow(
+                        repo: repo,
+                        selected: selectedKeys.contains(repo.selectionKey),
+                        onToggle: () => onToggleRepo(repo),
+                      ),
+                    );
+                  }
+                  String warning = result.warnings[index - repositoryCount];
+                  return Padding(
+                    padding: const EdgeInsets.only(
+                      bottom: AlembicShadcnTokens.gapXs,
                     ),
-                ],
+                    child: _ImportWarningRow(warning: warning),
+                  );
+                },
               ),
             ),
           ),

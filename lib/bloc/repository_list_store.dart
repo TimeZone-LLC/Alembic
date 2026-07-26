@@ -34,6 +34,10 @@ class RepositoryListStore {
   static const String _logTag = 'repo_store';
   static const int _parallelPageWindow = 4;
   static const int _refResolveConcurrency = 4;
+  static final RegExp _gitConfigUrlPattern = RegExp(
+    r'^\s*url\s*=\s*(.+)\s*$',
+    multiLine: true,
+  );
 
   final AccountRegistry _registry;
   final BehaviorSubject<RepositoryListState> _subject;
@@ -645,7 +649,8 @@ class RepositoryListStore {
   }) async {
     Map<String, RepositoryRef> unresolved = <String, RepositoryRef>{};
     try {
-      for (RepositoryRef ref in _scanWorkspaceRepositoryRefs()) {
+      List<RepositoryRef> workspaceRefs = await _scanWorkspaceRepositoryRefs();
+      for (RepositoryRef ref in workspaceRefs) {
         String key = ref.fullName.toLowerCase();
         if (!nextCache.containsKey(key)) {
           unresolved.putIfAbsent(key, () => ref);
@@ -738,61 +743,54 @@ class RepositoryListStore {
         'private': false,
       });
 
-  List<RepositoryRef> _scanWorkspaceRepositoryRefs() {
+  Future<List<RepositoryRef>> _scanWorkspaceRepositoryRefs() async {
     String workspacePath = DesktopPlatformAdapter.instance
         .expandHomePath(config.workspaceDirectory);
     Directory workspaceDirectory = Directory(workspacePath);
-    if (!workspaceDirectory.existsSync()) {
+    if (!await workspaceDirectory.exists()) {
       return <RepositoryRef>[];
     }
 
     Map<String, RepositoryRef> refsByName = <String, RepositoryRef>{};
-    List<FileSystemEntity> ownerDirectories;
     try {
-      ownerDirectories = workspaceDirectory.listSync(followLinks: false);
+      await for (FileSystemEntity ownerEntity
+          in workspaceDirectory.list(followLinks: false)) {
+        if (ownerEntity is! Directory) {
+          continue;
+        }
+
+        String ownerFolderName = _lastPathSegment(ownerEntity.path);
+        if (ownerFolderName.startsWith('.')) {
+          continue;
+        }
+
+        try {
+          await for (FileSystemEntity repositoryEntity
+              in ownerEntity.list(followLinks: false)) {
+            if (repositoryEntity is! Directory) {
+              continue;
+            }
+
+            Directory gitDirectory = Directory('${repositoryEntity.path}/.git');
+            if (!await gitDirectory.exists()) {
+              continue;
+            }
+
+            String repositoryFolderName =
+                _lastPathSegment(repositoryEntity.path);
+            RepositoryRef? ref = await _repositoryRefFromLocalDirectory(
+              repositoryEntity,
+              fallbackOwner: ownerFolderName,
+              fallbackName: repositoryFolderName,
+            );
+            if (ref != null) {
+              refsByName[ref.fullName.toLowerCase()] = ref;
+            }
+          }
+        } catch (_) {}
+      }
     } catch (_) {
       return <RepositoryRef>[];
-    }
-
-    for (FileSystemEntity ownerEntity in ownerDirectories) {
-      if (ownerEntity is! Directory) {
-        continue;
-      }
-
-      String ownerFolderName = _lastPathSegment(ownerEntity.path);
-      if (ownerFolderName.startsWith('.')) {
-        continue;
-      }
-
-      List<FileSystemEntity> repositoryDirectories;
-      try {
-        repositoryDirectories = ownerEntity.listSync(followLinks: false);
-      } catch (_) {
-        continue;
-      }
-
-      for (FileSystemEntity repositoryEntity in repositoryDirectories) {
-        if (repositoryEntity is! Directory) {
-          continue;
-        }
-
-        Directory gitDirectory = Directory('${repositoryEntity.path}/.git');
-        if (!gitDirectory.existsSync()) {
-          continue;
-        }
-
-        String repositoryFolderName = _lastPathSegment(repositoryEntity.path);
-        RepositoryRef? ref = _repositoryRefFromLocalDirectory(
-          repositoryEntity,
-          fallbackOwner: ownerFolderName,
-          fallbackName: repositoryFolderName,
-        );
-        if (ref == null) {
-          continue;
-        }
-
-        refsByName[ref.fullName.toLowerCase()] = ref;
-      }
     }
 
     List<RepositoryRef> refs = refsByName.values.toList();
@@ -803,17 +801,16 @@ class RepositoryListStore {
     return refs;
   }
 
-  RepositoryRef? _repositoryRefFromLocalDirectory(
+  Future<RepositoryRef?> _repositoryRefFromLocalDirectory(
     Directory directory, {
     required String fallbackOwner,
     required String fallbackName,
-  }) {
+  }) async {
     File gitConfig = File('${directory.path}/.git/config');
-    if (gitConfig.existsSync()) {
+    if (await gitConfig.exists()) {
       try {
-        String contents = gitConfig.readAsStringSync();
-        RegExp urlPattern = RegExp(r'^\s*url\s*=\s*(.+)\s*$', multiLine: true);
-        for (RegExpMatch match in urlPattern.allMatches(contents)) {
+        String contents = await gitConfig.readAsString();
+        for (RegExpMatch match in _gitConfigUrlPattern.allMatches(contents)) {
           String? rawUrl = match.group(1);
           if (rawUrl == null) {
             continue;

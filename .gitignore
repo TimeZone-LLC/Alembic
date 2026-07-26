@@ -66,3 +66,5 @@ test/*
 !test/release/**
 !test/update/
 !test/update/**
+!test/optimization/
+!test/optimization/**

@@ -28,6 +28,9 @@ class RepositoryRuntime {
       BehaviorSubject<List<RepositoryWork>>.seeded(
     <RepositoryWork>[],
   );
+  final Map<String, BehaviorSubject<List<RepositoryWork>>>
+      _repositoryWorkSubjects =
+      <String, BehaviorSubject<List<RepositoryWork>>>{};
 
   List<Repository> _activeRepositories = <Repository>[];
 
@@ -89,6 +92,7 @@ class RepositoryRuntime {
       progress: progress,
     );
     repoWork.add(<RepositoryWork>[...repoWork.value, job]);
+    _publishRepositoryWork(repository);
     return job;
   }
 
@@ -107,24 +111,29 @@ class RepositoryRuntime {
       job.progress = _clampedProgress(progress);
     }
     repoWork.add(<RepositoryWork>[...repoWork.value]);
+    _publishRepositoryWork(job.repository);
   }
 
   void endWork(RepositoryWork job) {
     repoWork.add(
       repoWork.value.where((item) => item != job).toList(),
     );
+    _publishRepositoryWork(job.repository);
   }
 
   Stream<List<RepositoryWork>> streamWorkEntries(Repository repository) {
-    String target = repository.fullName.toLowerCase();
-    return repoWork.stream.map((List<RepositoryWork> work) {
-      return work
-          .where(
-            (RepositoryWork item) =>
-                item.repository.fullName.toLowerCase() == target,
-          )
-          .toList();
-    });
+    String key = _repositoryKey(repository);
+    BehaviorSubject<List<RepositoryWork>>? existing =
+        _repositoryWorkSubjects[key];
+    if (existing != null) {
+      return existing.stream;
+    }
+    BehaviorSubject<List<RepositoryWork>> created =
+        BehaviorSubject<List<RepositoryWork>>.seeded(
+      _workEntriesFor(key),
+    );
+    _repositoryWorkSubjects[key] = created;
+    return created.stream;
   }
 
   Stream<List<String>> streamWork(Repository repository) {
@@ -153,10 +162,36 @@ class RepositoryRuntime {
   }
 
   Future<void> dispose() async {
+    List<BehaviorSubject<List<RepositoryWork>>> repositoryWorkSubjects =
+        _repositoryWorkSubjects.values.toList();
+    _repositoryWorkSubjects.clear();
+    for (BehaviorSubject<List<RepositoryWork>> subject
+        in repositoryWorkSubjects) {
+      await subject.close();
+    }
     await changed.close();
     await syncingRepositories.close();
     await repoWork.close();
   }
+
+  void _publishRepositoryWork(Repository repository) {
+    String key = _repositoryKey(repository);
+    BehaviorSubject<List<RepositoryWork>>? subject =
+        _repositoryWorkSubjects[key];
+    if (subject == null || subject.isClosed) {
+      return;
+    }
+    subject.add(_workEntriesFor(key));
+  }
+
+  List<RepositoryWork> _workEntriesFor(String key) => repoWork.value
+      .where(
+        (RepositoryWork item) => _repositoryKey(item.repository) == key,
+      )
+      .toList();
+
+  String _repositoryKey(Repository repository) =>
+      repository.fullName.toLowerCase();
 
   double _clampedProgress(double value) {
     if (value < 0) {

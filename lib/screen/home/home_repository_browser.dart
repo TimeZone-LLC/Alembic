@@ -311,51 +311,53 @@ class _RepositoryList extends StatelessWidget {
     required this.onShowDetails,
   });
 
-  int? _findRepositoryIndex(m.Key key) {
-    if (key is! m.ValueKey<String>) {
-      return null;
-    }
-    String value = key.value;
-    if (!value.startsWith(keyPrefix)) {
-      return null;
-    }
-    String fullName = value.substring(keyPrefix.length);
-    int repositoryIndex =
-        entries.indexWhere((entry) => entry.lowerKey == fullName);
-    return repositoryIndex < 0 ? null : repositoryIndex;
-  }
-
   @override
-  Widget build(BuildContext context) => m.Scrollbar(
+  Widget build(BuildContext context) {
+    Map<String, int> indexByRepository = <String, int>{
+      for (int index = 0; index < entries.length; index++)
+        entries[index].lowerKey: index,
+    };
+    return m.Scrollbar(
+      controller: scrollController,
+      child: m.CustomScrollView(
         controller: scrollController,
-        child: m.CustomScrollView(
-          controller: scrollController,
-          slivers: <Widget>[
-            m.SliverPadding(
-              padding: const EdgeInsets.only(bottom: AlembicShadcnTokens.gapSm),
-              sliver: m.SliverList.builder(
-                itemCount: entries.length,
-                findChildIndexCallback: _findRepositoryIndex,
-                itemBuilder: (context, index) {
-                  HomeRepositoryEntry entry = entries[index];
-                  return HomeRepositoryRow(
-                    key: m.ValueKey<String>('$keyPrefix${entry.lowerKey}'),
-                    entry: entry,
-                    runtime: runtime,
-                    revision: revision,
-                    archiveEnabled: archiveEnabled,
-                    account: accountForRepository(entry.repository),
-                    canFork: canForkRepository(entry.repository),
-                    selection: selection,
-                    showSeparator: index != entries.length - 1,
-                    onPrimaryAction: onPrimaryAction,
-                    onAction: onRepositoryAction,
-                    onShowDetails: onShowDetails,
-                  );
-                },
-              ),
+        slivers: <Widget>[
+          m.SliverPadding(
+            padding: const EdgeInsets.only(bottom: AlembicShadcnTokens.gapSm),
+            sliver: m.SliverList.builder(
+              itemCount: entries.length,
+              findChildIndexCallback: (key) {
+                if (key is! m.ValueKey<String>) {
+                  return null;
+                }
+                String value = key.value;
+                if (!value.startsWith(keyPrefix)) {
+                  return null;
+                }
+                String fullName = value.substring(keyPrefix.length);
+                return indexByRepository[fullName];
+              },
+              itemBuilder: (context, index) {
+                HomeRepositoryEntry entry = entries[index];
+                return HomeRepositoryRow(
+                  key: m.ValueKey<String>('$keyPrefix${entry.lowerKey}'),
+                  entry: entry,
+                  runtime: runtime,
+                  revision: revision,
+                  archiveEnabled: archiveEnabled,
+                  account: accountForRepository(entry.repository),
+                  canFork: canForkRepository(entry.repository),
+                  selection: selection,
+                  showSeparator: index != entries.length - 1,
+                  onPrimaryAction: onPrimaryAction,
+                  onAction: onRepositoryAction,
+                  onShowDetails: onShowDetails,
+                );
+              },
             ),
-          ],
-        ),
-      );
+          ),
+        ],
+      ),
+    );
+  }
 }

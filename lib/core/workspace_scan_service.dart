@@ -29,7 +29,6 @@ class WorkspaceScanSnapshot {
   final List<String> activeRepositories;
   final List<String> archivedRepositories;
   final List<String> syncingRepositories;
-  final List<RepositoryWork> workEntries;
   final Map<String, ArchiveMasterRepoState> archiveMasterStates;
   final Map<String, RepositoryLocalState> localStates;
 
@@ -37,7 +36,6 @@ class WorkspaceScanSnapshot {
     required this.activeRepositories,
     required this.archivedRepositories,
     required this.syncingRepositories,
-    required this.workEntries,
     required this.archiveMasterStates,
     required this.localStates,
   });
@@ -46,7 +44,6 @@ class WorkspaceScanSnapshot {
         activeRepositories: <String>[],
         archivedRepositories: <String>[],
         syncingRepositories: <String>[],
-        workEntries: <RepositoryWork>[],
         archiveMasterStates: <String, ArchiveMasterRepoState>{},
         localStates: <String, RepositoryLocalState>{},
       );
@@ -70,16 +67,17 @@ class WorkspaceScanService {
   final RepositoryRuntime _runtime;
   final AlembicDiagnostics _diagnostics;
   final BehaviorSubject<WorkspaceScanSnapshot> _subject;
-  final Set<String> _activeRepositories = <String>{};
-  final Set<String> _archivedRepositories = <String>{};
+  Set<String> _activeRepositories = <String>{};
+  Set<String> _archivedRepositories = <String>{};
 
-  StreamSubscription<List<RepositoryWork>>? _workSub;
   StreamSubscription<List<Repository>>? _syncingSub;
   StreamSubscription<int>? _changedSub;
   Timer? _debounceTimer;
   Timer? _rescanTimer;
+  Completer<void>? _scanCompleter;
   bool _started = false;
-  bool _scanBusy = false;
+  bool _scanRequested = false;
+  bool _forceEmitRequested = false;
 
   WorkspaceScanService({
     required RepositoryListStore store,
@@ -102,27 +100,20 @@ class WorkspaceScanService {
       return;
     }
     _started = true;
-    _workSub = _runtime.repoWork.stream.listen((_) {
+    _syncingSub = _runtime.syncingRepositories.stream.skip(1).listen((_) {
       _scheduleEmit();
     });
-    _syncingSub = _runtime.syncingRepositories.stream.listen((_) {
-      _scheduleEmit();
+    _changedSub = _runtime.changed.stream.skip(1).listen((_) {
+      unawaited(_requestScan(forceEmit: true));
     });
-    _changedSub = _runtime.changed.stream.listen((_) {
-      unawaited(_rescanAndEmitIfChanged(forceEmit: true));
-    });
-    await _rescanFromDisk();
-    _emitSnapshot();
+    await _requestScan(forceEmit: true);
     _rescanTimer = Timer.periodic(_rescanInterval, (_) {
-      unawaited(_rescanAndEmitIfChanged());
+      unawaited(_requestScan());
     });
     _diagnostics.success(_logTag, 'workspace scan service started');
   }
 
-  Future<void> rescan() async {
-    await _rescanFromDisk();
-    _emitSnapshot();
-  }
+  Future<void> rescan() => _requestScan(forceEmit: true);
 
   Future<void> dispose() async {
     _started = false;
@@ -130,57 +121,95 @@ class WorkspaceScanService {
     _debounceTimer = null;
     _rescanTimer?.cancel();
     _rescanTimer = null;
-    await _workSub?.cancel();
     await _syncingSub?.cancel();
     await _changedSub?.cancel();
+    _scanRequested = false;
+    _forceEmitRequested = false;
+    Completer<void>? scanCompleter = _scanCompleter;
+    if (scanCompleter != null) {
+      try {
+        await scanCompleter.future;
+      } catch (_) {}
+    }
     await _subject.close();
   }
 
-  Future<bool> _rescanAndEmitIfChanged({bool forceEmit = false}) async {
-    if (_scanBusy) {
-      if (forceEmit) {
-        _scheduleEmit();
-      }
-      return false;
+  Future<void> _requestScan({bool forceEmit = false}) {
+    _scanRequested = true;
+    _forceEmitRequested = _forceEmitRequested || forceEmit;
+    Completer<void>? activeCompleter = _scanCompleter;
+    if (activeCompleter != null) {
+      return activeCompleter.future;
     }
-    _scanBusy = true;
+
+    Completer<void> completer = Completer<void>();
+    _scanCompleter = completer;
+    unawaited(_drainScanQueue(completer));
+    return completer.future;
+  }
+
+  Future<void> _drainScanQueue(Completer<void> completer) async {
     try {
-      bool changed = await _rescanFromDisk();
-      if (changed || forceEmit) {
-        _emitSnapshot();
+      while (_scanRequested) {
+        bool forceEmit = _forceEmitRequested;
+        _scanRequested = false;
+        _forceEmitRequested = false;
+        bool changed = await _rescanFromDisk();
+        if (changed || forceEmit) {
+          _emitSnapshot();
+        }
       }
-      return changed;
+      completer.complete();
+    } catch (error, stackTrace) {
+      _scanRequested = false;
+      _forceEmitRequested = false;
+      completer.completeError(error, stackTrace);
     } finally {
-      _scanBusy = false;
+      if (identical(_scanCompleter, completer)) {
+        _scanCompleter = null;
+      }
     }
   }
 
   Future<bool> _rescanFromDisk() async {
     Set<String> previousActive = Set<String>.from(_activeRepositories);
     Set<String> previousArchived = Set<String>.from(_archivedRepositories);
+    Set<String> nextActive = <String>{};
+    Set<String> nextArchived = <String>{};
     String workspaceDir = _safeWorkspaceDir();
     String archiveDir = _safeArchiveDir();
-    _activeRepositories.clear();
-    _archivedRepositories.clear();
 
     if (workspaceDir.isNotEmpty) {
       try {
-        await _scanWorkspace(workspaceDir);
+        await _scanWorkspace(
+          workspaceDir: workspaceDir,
+          repositories: nextActive,
+        );
       } catch (e) {
         _diagnostics.warn(_logTag, 'workspace scan failed: $e');
+        nextActive = previousActive;
       }
     }
     if (archiveDir.isNotEmpty) {
       try {
-        await _scanArchives(archiveDir);
+        await _scanArchives(
+          archiveDir: archiveDir,
+          repositories: nextArchived,
+        );
       } catch (e) {
         _diagnostics.warn(_logTag, 'archive scan failed: $e');
+        nextArchived = previousArchived;
       }
     }
-    _refreshDerivedSets();
+    _refreshDerivedSets(
+      repositories: nextActive,
+      workspaceDir: workspaceDir,
+    );
 
-    bool changed = !_sameStringSet(previousActive, _activeRepositories) ||
-        !_sameStringSet(previousArchived, _archivedRepositories);
+    bool changed = !_sameStringSet(previousActive, nextActive) ||
+        !_sameStringSet(previousArchived, nextArchived);
+    _activeRepositories = Set<String>.unmodifiable(nextActive);
+    _archivedRepositories = Set<String>.unmodifiable(nextArchived);
     if (changed) {
       _diagnostics.trace(
         _logTag,
@@ -208,7 +237,10 @@ class WorkspaceScanService {
     }
   }
 
-  Future<void> _scanWorkspace(String workspaceDir) async {
+  Future<void> _scanWorkspace({
+    required String workspaceDir,
+    required Set<String> repositories,
+  }) async {
     Directory root = Directory(workspaceDir);
     if (!await root.exists()) {
       return;
@@ -231,14 +263,17 @@ class WorkspaceScanService {
               .last;
           Directory gitDir = Directory('${repoEntity.path}/.git');
           if (await gitDir.exists()) {
-            _activeRepositories.add('$owner/$name'.toLowerCase());
+            repositories.add('$owner/$name'.toLowerCase());
           }
         }
       } catch (_) {}
     }
   }
 
-  Future<void> _scanArchives(String archiveDir) async {
+  Future<void> _scanArchives({
+    required String archiveDir,
+    required Set<String> repositories,
+  }) async {
     Directory archivesDir = Directory('$archiveDir/archives');
     if (!await archivesDir.exists()) {
       return;
@@ -267,7 +302,7 @@ class WorkspaceScanService {
             continue;
           }
           String name = fileName.substring(0, fileName.length - 4);
-          _archivedRepositories.add('$owner/$name'.toLowerCase());
+          repositories.add('$owner/$name'.toLowerCase());
         }
       } catch (_) {}
     }
@@ -286,8 +321,6 @@ class WorkspaceScanService {
   }
 
   WorkspaceScanSnapshot _buildSnapshot() {
-    _refreshDerivedSets();
-
     Map<String, ArchiveMasterRepoState> masterStates =
         loadArchiveMasterRepoStates();
     Map<String, RepositoryLocalState> localStates =
@@ -305,18 +338,23 @@ class WorkspaceScanService {
         _runtime.syncingRepositories.value
             .map((Repository repo) => repo.fullName),
       ),
-      workEntries: List<RepositoryWork>.unmodifiable(_runtime.repoWork.value),
       archiveMasterStates:
           Map<String, ArchiveMasterRepoState>.unmodifiable(masterStates),
       localStates: Map<String, RepositoryLocalState>.unmodifiable(localStates),
     );
   }
 
-  void _refreshDerivedSets() {
+  void _refreshDerivedSets({
+    required Set<String> repositories,
+    required String workspaceDir,
+  }) {
     List<Repository> verifiedActive = <Repository>[];
     for (Repository active in _runtime.activeRepositories) {
-      if (_repositoryIsActiveSync(active)) {
-        _activeRepositories.add(_repositoryKey(active));
+      if (_repositoryIsActiveSync(
+        repository: active,
+        workspaceDir: workspaceDir,
+      )) {
+        repositories.add(_repositoryKey(active));
         verifiedActive.add(active);
       }
     }
@@ -372,17 +410,34 @@ class WorkspaceScanService {
     return remainingDays < 0 ? 0 : remainingDays;
   }
 
-  bool _repositoryIsActiveSync(Repository repository) => Directory(
+  bool _repositoryIsActiveSync({
+    required Repository repository,
+    required String workspaceDir,
+  }) =>
+      Directory(
         DesktopPlatformAdapter.instance.joinPath(
-          _repositoryPath(repository),
+          _repositoryPathForWorkspace(
+            repository: repository,
+            workspaceDir: workspaceDir,
+          ),
           '.git',
         ),
       ).existsSync();
 
   String _repositoryPath(Repository repository) {
+    return _repositoryPathForWorkspace(
+      repository: repository,
+      workspaceDir: _safeWorkspaceDir(),
+    );
+  }
+
+  String _repositoryPathForWorkspace({
+    required Repository repository,
+    required String workspaceDir,
+  }) {
     String owner = repository.owner?.login ?? 'unknown';
     String ownerPath = DesktopPlatformAdapter.instance.joinPath(
-      _safeWorkspaceDir(),
+      workspaceDir,
       owner,
     );
     return DesktopPlatformAdapter.instance.joinPath(ownerPath, repository.name);

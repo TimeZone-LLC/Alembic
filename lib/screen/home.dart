@@ -72,7 +72,6 @@ class _AlembicHomeState extends State<AlembicHome> {
 
   StreamSubscription<RepositoryListState>? _listSubscription;
   StreamSubscription<WorkspaceScanSnapshot>? _scanSubscription;
-  StreamSubscription<int>? _runtimeSubscription;
   StreamSubscription<bool>? _archiveMasterRunningSubscription;
   StreamSubscription<bool>? _updateAvailableSubscription;
   StreamSubscription<AlembicTrayMenuAction>? _traySubscription;
@@ -120,14 +119,6 @@ class _AlembicHomeState extends State<AlembicHome> {
         _revision++;
       });
     });
-    _runtimeSubscription = widget.runtime.changed.stream.listen((_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _revision++;
-      });
-    });
     _archiveMasterRunningSubscription =
         widget.archiveMasterService.isRunning.stream.listen((_) {
       if (!mounted) {
@@ -155,7 +146,6 @@ class _AlembicHomeState extends State<AlembicHome> {
     _searchController.dispose();
     _listSubscription?.cancel();
     _scanSubscription?.cancel();
-    _runtimeSubscription?.cancel();
     _archiveMasterRunningSubscription?.cancel();
     _updateAvailableSubscription?.cancel();
     _traySubscription?.cancel();
@@ -279,14 +269,7 @@ class _AlembicHomeState extends State<AlembicHome> {
     await widget.store.refresh();
   }
 
-  Future<void> _afterMutation() async {
-    await widget.scanService.rescan();
-    if (mounted) {
-      setState(() {
-        _revision++;
-      });
-    }
-  }
+  Future<void> _afterMutation() => widget.scanService.rescan();
 
   Future<void> _openPrimaryRepositoryAction(HomeRepositoryEntry entry) async {
     String? accountId = _controller.accountIdForRepository(entry.repository);

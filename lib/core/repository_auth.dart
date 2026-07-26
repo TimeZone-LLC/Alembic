@@ -97,8 +97,10 @@ class RepositoryAuthInspector {
     }
     final String remoteUrl =
         await _readGitConfig(repo.repoPath, 'remote.origin.url') ?? '';
-    final String sshCommand =
-        await _readGitConfig(repo.repoPath, 'core.sshCommand') ?? '';
+    String sshCommand = '';
+    if (_sshPattern.hasMatch(remoteUrl.trim())) {
+      sshCommand = await _readGitConfig(repo.repoPath, 'core.sshCommand') ?? '';
+    }
     return _classifyAuth(
       repo: repo,
       remoteUrl: remoteUrl,

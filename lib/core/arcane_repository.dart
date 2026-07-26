@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math';
 
 import 'package:alembic/core/repository_runtime.dart';
@@ -18,11 +19,23 @@ import 'package:rxdart/rxdart.dart';
 
 enum RepoState { active, archived, cloud }
 
+typedef ArchiveDirectoryWriter = Future<void> Function(
+  String source,
+  String destination,
+);
+
+typedef ArchiveFileExtractor = Future<void> Function(
+  String source,
+  String destination,
+);
+
 class ArcaneRepository {
   final Repository repository;
   final RepositoryRuntime runtime;
   final CommandRunner commandRunner;
   final GitSigningManager signingManager;
+  final ArchiveDirectoryWriter archiveWriter;
+  final ArchiveFileExtractor archiveExtractor;
   final String? accountId;
   bool? _specific;
 
@@ -32,9 +45,39 @@ class ArcaneRepository {
     this.accountId,
     CommandRunner? commandRunner,
     GitSigningManager? signingManager,
+    ArchiveDirectoryWriter? archiveWriter,
+    ArchiveFileExtractor? archiveExtractor,
   })  : commandRunner = commandRunner ?? cmd,
         signingManager = signingManager ??
-            GitSigningManager(commandRunner: commandRunner ?? cmd);
+            GitSigningManager(commandRunner: commandRunner ?? cmd),
+        archiveWriter = archiveWriter ?? _writeArchiveDirectory,
+        archiveExtractor = archiveExtractor ?? _extractArchiveFile;
+
+  static Future<void> _writeArchiveDirectory(
+    String source,
+    String destination,
+  ) =>
+      Isolate.run<void>(() async {
+        ZipFileEncoder encoder = ZipFileEncoder();
+        await encoder.zipDirectory(
+          Directory(source),
+          filename: destination,
+          level: ZipFileEncoder.gzip,
+          followLinks: false,
+        );
+      });
+
+  static Future<void> _extractArchiveFile(
+    String source,
+    String destination,
+  ) =>
+      Isolate.run<void>(() => extractFileToDisk(source, destination));
+
+  static String _temporarySiblingPath(String path, String operation) {
+    int nonce = Random.secure().nextInt(1 << 32);
+    int timestamp = DateTime.timestamp().microsecondsSinceEpoch;
+    return '$path.alembic-$operation-$pid-$timestamp-$nonce';
+  }
 
   String get repoPath => expandPath(
       "${config.workspaceDirectory}/${repository.owner?.login}/${repository.name}");
@@ -162,19 +205,25 @@ class ArcaneRepository {
 
     int? latestTime;
     try {
-      await for (FileSystemEntity entity in Directory(repoPath).list(
-        recursive: true,
-        followLinks: false,
-      )) {
-        final String normalizedPath = entity.path.replaceAll('\\', '/');
-        if (normalizedPath.contains('/.git/')) {
-          continue;
-        }
-        if (entity is File) {
-          final DateTime modTime = await entity.lastModified();
-          final int modTimeMs = modTime.millisecondsSinceEpoch;
-          if (latestTime == null || modTimeMs > latestTime) {
-            latestTime = modTimeMs;
+      List<Directory> directories = <Directory>[Directory(repoPath)];
+      while (directories.isNotEmpty) {
+        Directory directory = directories.removeLast();
+        await for (FileSystemEntity entity
+            in directory.list(followLinks: false)) {
+          String normalizedPath = entity.path.replaceAll('\\', '/');
+          if (entity is Directory) {
+            if (normalizedPath.endsWith('/.git')) {
+              continue;
+            }
+            directories.add(entity);
+            continue;
+          }
+          if (entity is File) {
+            DateTime modTime = await entity.lastModified();
+            int modTimeMs = modTime.millisecondsSinceEpoch;
+            if (latestTime == null || modTimeMs > latestTime) {
+              latestTime = modTimeMs;
+            }
           }
         }
       }
@@ -467,14 +516,27 @@ class ArcaneRepository {
         return;
       }
 
-      await File(imagePath).absolute.parent.create(recursive: true);
-      final ZipFileEncoder encoder = ZipFileEncoder();
-      await encoder.zipDirectory(
-        Directory(repoPath),
-        filename: imagePath,
-        level: ZipFileEncoder.gzip,
-        followLinks: false,
-      );
+      File archiveFile = File(imagePath);
+      await archiveFile.absolute.parent.create(recursive: true);
+      String temporaryPath = _temporarySiblingPath(imagePath, 'archive');
+      File temporaryArchive = File(temporaryPath);
+      try {
+        await archiveWriter(repoPath, temporaryPath);
+        if (!await temporaryArchive.exists() ||
+            await temporaryArchive.length() == 0) {
+          throw Exception(
+            'Archive creation produced no data for ${repository.fullName}',
+          );
+        }
+        if (await archiveFile.exists()) {
+          return;
+        }
+        await temporaryArchive.rename(imagePath);
+      } finally {
+        if (await temporaryArchive.exists()) {
+          await temporaryArchive.delete();
+        }
+      }
 
       success("Archived repository at $repoPath to $imagePath");
       await deleteRepository();
@@ -491,8 +553,29 @@ class ArcaneRepository {
         return;
       }
 
-      await Directory(repoPath).create(recursive: true);
-      await extractFileToDisk(imagePath, repoPath);
+      Directory target = Directory(repoPath);
+      if (await target.exists()) {
+        throw Exception('Workspace path already exists: $repoPath');
+      }
+      String stagingPath = _temporarySiblingPath(repoPath, 'unarchive');
+      Directory staging = Directory(stagingPath);
+      try {
+        await staging.create(recursive: true);
+        await archiveExtractor(imagePath, stagingPath);
+        if (!await Directory('$stagingPath/.git').exists()) {
+          throw Exception(
+            'Archive does not contain a git checkout for ${repository.fullName}',
+          );
+        }
+        if (await target.exists()) {
+          throw Exception('Workspace path already exists: $repoPath');
+        }
+        await staging.rename(repoPath);
+      } finally {
+        if (await staging.exists()) {
+          await staging.delete(recursive: true);
+        }
+      }
 
       await File(imagePath).delete();
       success("Unarchived repository to $repoPath from $imagePath");
@@ -509,6 +592,11 @@ class ArcaneRepository {
       final Future<void> pull = ensureRepositoryUpdated(github);
       if (waitForPull) {
         await pull;
+      } else {
+        unawaited(pull.catchError((Object e, StackTrace stackTrace) {
+          warn("Background pull failed for ${repository.fullName}: $e");
+          verbose("$stackTrace");
+        }));
       }
     });
   }
@@ -652,15 +740,20 @@ class ArcaneRepository {
         <String>['-C', archiveMasterPath, 'fetch', '--all', '--prune'],
       );
       if (fetchExit != 0) {
-        warn("Archive master fetch failed for ${repository.fullName}");
+        throw Exception(
+          'Archive master fetch failed for ${repository.fullName} '
+          'with exit code $fetchExit',
+        );
       }
       final int pullExit = await commandRunner(
         'git',
         <String>['-C', archiveMasterPath, 'pull', '--ff-only'],
       );
       if (pullExit != 0) {
-        warn("Archive master pull failed for ${repository.fullName}");
-        return;
+        throw Exception(
+          'Archive master pull failed for ${repository.fullName} '
+          'with exit code $pullExit',
+        );
       }
       success("Pulled archive master ${repository.fullName}");
     } finally {
