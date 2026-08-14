@@ -33,6 +33,7 @@ assets/*.pem
 .pub-cache/
 .pub/
 /build/
+.codegraph/
 
 # Symbolication related
 app.*.symbols
