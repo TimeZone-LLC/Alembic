@@ -74,6 +74,8 @@ void main() {
     expect(snapshot.state, GitActivityState.ready);
     expect(snapshot.totalCommits, 1);
     expect(snapshot.dailyCommits[28], 1);
+    expect(snapshot.latestCommit!.committedAt,
+        today.subtract(const Duration(days: 60)));
   });
 
   test('only commits reachable from current HEAD are counted', () async {
@@ -97,6 +99,7 @@ void main() {
     expect(empty.state, GitActivityState.ready);
     expect(empty.unborn, isTrue);
     expect(empty.totalCommits, 0);
+    expect(empty.latestCommit, isNull);
     await _commit(directory.path, today.subtract(const Duration(days: 1)));
     await _commit(directory.path, today);
     final String clone = '${directory.path}/shallow-clone';
@@ -125,6 +128,53 @@ void main() {
         await GitActivityService(now: () => today).read(directory.path);
     expect(snapshot.state, GitActivityState.ready);
     expect(snapshot.totalCommits, 1);
+    expect(snapshot.latestCommit!.subject, 'Fixture');
+    expect(snapshot.latestCommit!.author, 'Fixture');
+  });
+
+  test('latest HEAD subject, author and date remain outside activity window',
+      () async {
+    final DateTime committedAt = today.subtract(const Duration(days: 90));
+    const String subject = "Fix café | quotes 'single' and tabs\tinside";
+    const String author = 'Zoë | Developer';
+    await _git(directory.path, <String>['config', 'user.name', author]);
+    await _git(directory.path, <String>[
+      'commit',
+      '--allow-empty',
+      '-m',
+      subject
+    ], environment: <String, String>{
+      'GIT_AUTHOR_DATE': today.toIso8601String(),
+      'GIT_COMMITTER_DATE': committedAt.toIso8601String(),
+    });
+    await _git(directory.path,
+        <String>['config', 'i18n.logOutputEncoding', 'ISO-8859-1']);
+    final GitActivitySnapshot snapshot =
+        await GitActivityService(now: () => today).read(directory.path);
+    expect(snapshot.state, GitActivityState.ready);
+    expect(snapshot.totalCommits, 0);
+    expect(snapshot.latestCommit!.subject, subject.trimRight());
+    expect(snapshot.latestCommit!.author, author);
+    expect(snapshot.latestCommit!.committedAt, committedAt);
+    expect(snapshot.latestCommit!.committedAt.isUtc, isTrue);
+  });
+
+  test('empty commit subject remains empty for the UI fallback', () async {
+    await _git(directory.path, <String>[
+      'commit',
+      '--allow-empty',
+      '--allow-empty-message',
+      '-m',
+      ''
+    ], environment: <String, String>{
+      'GIT_AUTHOR_DATE': today.toIso8601String(),
+      'GIT_COMMITTER_DATE': today.toIso8601String(),
+    });
+    final GitActivitySnapshot snapshot =
+        await GitActivityService(now: () => today).read(directory.path);
+    expect(snapshot.state, GitActivityState.ready);
+    expect(snapshot.latestCommit!.subject, '');
+    expect(snapshot.latestCommit!.author, 'Fixture');
   });
 
   test('service performs no Git metadata writes', () async {
@@ -287,6 +337,41 @@ void main() {
     expect(scans, 2);
   });
 
+  test('verified latest commit survives an unavailable activity walk',
+      () async {
+    final GitActivitySnapshot snapshot = await GitActivityService(
+      now: () => today,
+      runner: (String path, List<String> arguments) async {
+        if (arguments.first == 'log') {
+          return ProcessResult(1, 128, '', 'missing history object');
+        }
+        return _fixtureResult(arguments, today);
+      },
+    ).read(directory.path);
+    expect(snapshot.state, GitActivityState.error);
+    expect(snapshot.error, contains('missing history object'));
+    expect(snapshot.latestCommit!.subject, 'Fixture subject');
+    expect(snapshot.latestCommit!.author, 'Fixture author');
+    expect(snapshot.latestCommit!.committedAt, today);
+  });
+
+  test(
+      'malformed HEAD metadata stays unavailable without a guessed latest commit',
+      () async {
+    final GitActivitySnapshot snapshot = await GitActivityService(
+      now: () => today,
+      runner: (String path, List<String> arguments) async {
+        if (arguments.first == 'show') {
+          return ProcessResult(1, 0, 'hash|subject|author|timestamp', '');
+        }
+        return _fixtureResult(arguments, today);
+      },
+    ).read(directory.path);
+    expect(snapshot.state, GitActivityState.error);
+    expect(snapshot.latestCommit, isNull);
+    expect(snapshot.error, contains('Invalid Git HEAD metadata'));
+  });
+
   test('missing checkout, corrupt HEAD and timed out commands stay unavailable',
       () async {
     expect(
@@ -318,7 +403,7 @@ ProcessResult _fixtureResult(List<String> arguments, DateTime timestamp) =>
             ? '${timestamp.millisecondsSinceEpoch ~/ 1000}\n'
             : arguments.contains('--is-shallow-repository')
                 ? 'false\n'
-                : '${List<String>.filled(40, 'a').join()}\n',
+                : '${List<String>.filled(40, 'a').join()}\u0000Fixture subject\u0000Fixture author\u0000${timestamp.millisecondsSinceEpoch ~/ 1000}\n',
         '');
 
 Future<void> _git(String path, List<String> arguments,

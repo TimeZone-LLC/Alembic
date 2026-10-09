@@ -10,8 +10,10 @@ import 'package:alembic/screen/home/home_repository_metadata.dart';
 import 'package:alembic/domain/repository_dto.dart';
 import 'package:alembic/main.dart' as app;
 import 'package:alembic/screen/home/home_repository_browser.dart';
+import 'package:alembic/screen/home/home_repository_rows.dart';
 import 'package:alembic/screen/home/home_sidebar.dart';
 import 'package:alembic/widget/repository_activity_chart.dart';
+import 'package:alembic/widget/repository_latest_commit.dart';
 import 'package:alembic/screen/home/home_top_bar.dart';
 import 'package:alembic/screen/home/home_view_filters.dart';
 import 'package:alembic/ui/alembic_ui.dart';
@@ -98,6 +100,23 @@ void main() {
               width >= 1080 && textScale == 1
                   ? findsNWidgets(3)
                   : findsNothing);
+          expect(
+              find.byType(RepositoryLatestCommit),
+              width >= 1080 && textScale == 1
+                  ? findsNWidgets(3)
+                  : findsNothing);
+          if (width >= 1080 && textScale == 1) {
+            final Finder row = find.byType(HomeRepositoryRow).first;
+            final Rect identity = tester.getRect(find.text('local-workspace'));
+            final Rect commit = tester.getRect(find.descendant(
+                of: row, matching: find.byType(RepositoryLatestCommit)));
+            final Rect graph = tester.getRect(find.descendant(
+                of: row, matching: find.byType(RepositoryActivityChart)));
+            expect(identity.right, lessThan(commit.left));
+            expect(commit.right, lessThanOrEqualTo(graph.left));
+            expect(tester.getRect(row).right - graph.right,
+                inInclusiveRange(12, 16));
+          }
           expect(find.byType(HomeSidebar),
               width >= 820 ? findsOneWidget : findsNothing);
           expect(find.byType(HomeTopBar), findsOneWidget);
@@ -420,7 +439,21 @@ class _ShellController {
                             : 0)),
             startDay: DateTime.utc(2026, 9, 10),
             endDay: DateTime.utc(2026, 10, 9),
-            checkedAt: DateTime.utc(2026, 10, 9)),
+            checkedAt: DateTime.utc(2026, 10, 9),
+            latestCommit: GitLatestCommit(
+              subject: path.endsWith('local-tools')
+                  ? 'Move repository actions into the context menu'
+                  : path.endsWith('local-utilities')
+                      ? 'Preserve selection when switching filters'
+                      : 'Keep repository scans asynchronous',
+              author: 'Fixture Author',
+              committedAt: DateTime.now().toUtc().subtract(Duration(
+                  minutes: path.endsWith('local-tools')
+                      ? 90
+                      : path.endsWith('local-utilities')
+                          ? 4320
+                          : 9)),
+            )),
   );
   final RepositoryLibrarySnapshot library = RepositoryLibrarySnapshot(
     pinnedRepositoryNames: <String>['TestFixtures/local-workspace'],

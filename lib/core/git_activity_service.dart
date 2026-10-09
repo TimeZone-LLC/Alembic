@@ -7,6 +7,18 @@ import 'package:path/path.dart' as p;
 
 enum GitActivityState { ready, notRepository, error }
 
+class GitLatestCommit {
+  final String subject;
+  final String author;
+  final DateTime committedAt;
+
+  const GitLatestCommit({
+    required this.subject,
+    required this.author,
+    required this.committedAt,
+  });
+}
+
 class GitActivitySnapshot {
   static const int dayCount = 30;
   final GitActivityState state;
@@ -17,6 +29,7 @@ class GitActivitySnapshot {
   final bool shallow;
   final bool unborn;
   final String? error;
+  final GitLatestCommit? latestCommit;
 
   GitActivitySnapshot({
     required this.state,
@@ -27,6 +40,7 @@ class GitActivitySnapshot {
     this.shallow = false,
     this.unborn = false,
     this.error,
+    this.latestCommit,
   })  : assert(dailyCommits.length == dayCount),
         dailyCommits = List<int>.unmodifiable(dailyCommits);
 
@@ -38,6 +52,7 @@ class GitActivitySnapshot {
     required DateTime checkedAt,
     bool shallow = false,
     bool unborn = false,
+    GitLatestCommit? latestCommit,
   }) {
     final DateTime utc = checkedAt.toUtc();
     final DateTime endDay = DateTime.utc(utc.year, utc.month, utc.day);
@@ -65,6 +80,7 @@ class GitActivitySnapshot {
       checkedAt: utc,
       shallow: shallow,
       unborn: unborn,
+      latestCommit: latestCommit,
     );
   }
 }
@@ -172,6 +188,7 @@ class GitActivityService {
     await _acquire();
     final Stopwatch clock = Stopwatch()..start();
     bool shallow = false;
+    GitLatestCommit? latestCommit;
     try {
       final FileSystemEntityType gitType =
           await FileSystemEntity.type(p.join(path, '.git'));
@@ -192,7 +209,18 @@ class GitActivityService {
       shallow = shallowText == 'true';
       final ProcessResult head = await _invoke(
           path,
-          <String>['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'],
+          <String>[
+            'show',
+            '--no-patch',
+            '--format=%H%x00%s%x00%an%x00%ct',
+            '--encoding=UTF-8',
+            '--no-show-signature',
+            '--no-notes',
+            '--no-decorate',
+            '--no-color',
+            'HEAD',
+            '--',
+          ],
           timeout - clock.elapsed);
       if (head.exitCode != 0) {
         final ProcessResult branch = await _invoke(
@@ -212,10 +240,23 @@ class GitActivityService {
         }
         throw StateError('Git HEAD could not be resolved to a commit');
       }
-      final String commit = head.stdout.toString().trim();
-      if (!RegExp(r'^[0-9a-fA-F]{40,64}$').hasMatch(commit)) {
-        throw const FormatException('Invalid Git HEAD commit');
+      final List<String> headFields = head.stdout.toString().split('\u0000');
+      if (headFields.length != 4 ||
+          !RegExp(r'^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$')
+              .hasMatch(headFields[0])) {
+        throw const FormatException('Invalid Git HEAD metadata');
       }
+      final int? commitSeconds = int.tryParse(headFields[3].trim());
+      if (commitSeconds == null) {
+        throw const FormatException('Invalid Git HEAD commit timestamp');
+      }
+      final String commit = headFields[0];
+      latestCommit = GitLatestCommit(
+        subject: headFields[1],
+        author: headFields[2],
+        committedAt: DateTime.fromMillisecondsSinceEpoch(commitSeconds * 1000,
+            isUtc: true),
+      );
       final DateTime utc = checkedAt.toUtc();
       final DateTime startDay = DateTime.utc(utc.year, utc.month, utc.day)
           .subtract(const Duration(days: GitActivitySnapshot.dayCount - 1));
@@ -236,7 +277,7 @@ class GitActivityService {
           timeout - clock.elapsed);
       if (history.exitCode != 0) throw StateError(_processError(history));
       return GitActivitySnapshot.fromTimestamps(history.stdout.toString(),
-          checkedAt: checkedAt, shallow: shallow);
+          checkedAt: checkedAt, shallow: shallow, latestCommit: latestCommit);
     } catch (error) {
       return _unavailable(
           GitActivityState.error,
@@ -244,7 +285,8 @@ class GitActivityService {
           error is TimeoutException
               ? 'Git activity timed out after ${timeout.inSeconds} seconds'
               : error.toString(),
-          shallow: shallow);
+          shallow: shallow,
+          latestCommit: latestCommit);
     } finally {
       _release();
     }
@@ -252,7 +294,7 @@ class GitActivityService {
 
   GitActivitySnapshot _unavailable(
       GitActivityState state, DateTime checkedAt, String error,
-      {bool shallow = false}) {
+      {bool shallow = false, GitLatestCommit? latestCommit}) {
     final DateTime utc = checkedAt.toUtc();
     final DateTime endDay = DateTime.utc(utc.year, utc.month, utc.day);
     return GitActivitySnapshot(
@@ -264,6 +306,7 @@ class GitActivityService {
       dailyCommits: List<int>.filled(GitActivitySnapshot.dayCount, 0),
       shallow: shallow,
       error: error,
+      latestCommit: latestCommit,
     );
   }
 

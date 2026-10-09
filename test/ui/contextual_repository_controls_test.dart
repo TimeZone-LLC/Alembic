@@ -7,6 +7,7 @@ import 'package:alembic/core/repository_auth.dart';
 import 'package:alembic/core/git_status_service.dart';
 import 'package:alembic/core/git_activity_service.dart';
 import 'package:alembic/widget/repository_activity_chart.dart';
+import 'package:alembic/widget/repository_latest_commit.dart';
 import 'package:alembic/screen/home/home_repository_metadata.dart';
 import 'package:alembic/domain/repository_dto.dart';
 import 'package:alembic/main.dart' as app;
@@ -313,16 +314,25 @@ void main() {
                 List<int>.generate(30, (int day) => day % 6 == 0 ? 2 : 0),
             startDay: DateTime.utc(2026, 9, 10),
             endDay: DateTime.utc(2026, 10, 9),
-            checkedAt: DateTime.utc(2026, 10, 9));
+            checkedAt: DateTime.utc(2026, 10, 9),
+            latestCommit: GitLatestCommit(
+                subject: 'Updated local workspace',
+                author: 'Fixture',
+                committedAt: DateTime.utc(2026, 10, 9)));
       },
     );
     await pumpBrowser(tester, width: 1200, metadataCache: cache);
     expect(find.byType(RepositoryActivityChart), findsOneWidget);
     expect(activityReads, 1);
+    expect(find.byType(RepositoryLatestCommit), findsOneWidget);
+    expect(find.text('Updated local workspace'), findsOneWidget);
+    final Rect commitBounds =
+        tester.getRect(find.byType(RepositoryLatestCommit));
     final Rect chartBounds =
         tester.getRect(find.byType(RepositoryActivityChart));
     expect(chartBounds.width, greaterThan(400));
     expect(chartBounds.height, greaterThan(50));
+    expect(commitBounds.right, lessThan(chartBounds.left));
     final Finder local = find.byType(HomeRepositoryRow).first;
     final Rect rowBounds = tester.getRect(local);
     final Rect titleBounds = tester.getRect(find.text('local'));
@@ -334,6 +344,7 @@ void main() {
     await mouse.moveTo(tester.getCenter(find.byType(HomeRepositoryRow).first));
     await tester.pumpAndSettle();
     expect(tester.getRect(find.byType(RepositoryActivityChart)), chartBounds);
+    expect(tester.getRect(find.byType(RepositoryLatestCommit)), commitBounds);
     expect(tester.getRect(local), rowBounds);
     expect(tester.getRect(find.text('local')), titleBounds);
     expect(find.byType(AlembicSelectionToggle).hitTestable(), findsNothing);
@@ -347,10 +358,16 @@ void main() {
     await tester.tap(find.byType(RepositoryActivityChart));
     await tester.pumpAndSettle();
     expect(find.text('Deselect all'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(RepositoryLatestCommit));
+    await tester.pumpAndSettle();
+    expect(find.text('Deselect all'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await pumpBrowser(tester, width: 700, metadataCache: cache);
     expect(find.byType(RepositoryActivityChart), findsNothing);
+    expect(find.byType(RepositoryLatestCommit), findsNothing);
     expect(activityReads, 1);
     await tester.pumpWidget(const SizedBox.shrink());
   });

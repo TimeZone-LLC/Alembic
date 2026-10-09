@@ -3,6 +3,7 @@ import 'package:alembic/core/repository_auth.dart';
 import 'package:alembic/core/git_status_service.dart';
 import 'package:alembic/core/git_activity_service.dart';
 import 'package:alembic/widget/repository_activity_chart.dart';
+import 'package:alembic/widget/repository_latest_commit.dart';
 import 'package:alembic/widget/repository_git_status.dart';
 import 'package:alembic/core/repository_runtime.dart';
 import 'package:alembic/platform/desktop_platform_adapter.dart';
@@ -349,6 +350,10 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
                   final bool showContext =
                       HomeRepositoryRow.showsProjectContext(
                           context, constraints.maxWidth);
+                  final bool showCommit =
+                      showContext && widget.metadata.gitActivity != null;
+                  final double identityWidth =
+                      (constraints.maxWidth * 0.28).clamp(240, 320).toDouble();
                   final double contextWidth = !showContext
                       ? 0.0
                       : (constraints.maxWidth * 0.42)
@@ -358,8 +363,8 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
                               constraints.maxWidth -
                                   (selectable ? 38 : 0) -
                                   24 -
-                                  16 -
-                                  280)
+                                  (showCommit ? 32 : 16) -
+                                  (showCommit ? identityWidth + 168 : 280))
                           .toDouble();
                   final Widget identity = Listener(
                     behavior: HitTestBehavior.opaque,
@@ -378,6 +383,7 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
                           _RowTitleLine(
                             entry: widget.entry,
                             pinned: widget.pinned,
+                            singleLineMetadata: showCommit,
                             account: widget.account,
                             enrolled: _enrolled,
                             archiveEnabled: widget.archiveEnabled,
@@ -449,7 +455,40 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
                                     onPressed: _toggleSelection,
                                     compact: compact,
                                   ),
-                                Expanded(child: identity),
+                                if (showCommit) ...<Widget>[
+                                  SizedBox(
+                                      width: identityWidth, child: identity),
+                                  const Gap(16),
+                                  Expanded(
+                                    child: Listener(
+                                      behavior: HitTestBehavior.opaque,
+                                      onPointerDown: (PointerDownEvent event) {
+                                        if (event.buttons & kPrimaryButton !=
+                                            0) {
+                                          widget.onSelect?.call();
+                                        }
+                                      },
+                                      child: GestureDetector(
+                                        behavior: HitTestBehavior.opaque,
+                                        onDoubleTap: () =>
+                                            widget.onShowDetails(widget.entry),
+                                        child:
+                                            FutureBuilder<GitActivitySnapshot>(
+                                          future: widget.metadata.gitActivity,
+                                          builder: (BuildContext context,
+                                                  AsyncSnapshot<
+                                                          GitActivitySnapshot>
+                                                      snapshot) =>
+                                              RepositoryLatestCommit(
+                                                  snapshot: snapshot.data,
+                                                  error: snapshot.error
+                                                      ?.toString()),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ] else
+                                  Expanded(child: identity),
                                 if (showContext) ...<Widget>[
                                   const Gap(16),
                                   SizedBox(
@@ -597,6 +636,7 @@ class _RowSelectionSlot extends StatelessWidget {
 class _RowTitleLine extends StatelessWidget {
   final HomeRepositoryEntry entry;
   final bool pinned;
+  final bool singleLineMetadata;
   final GitAccount? account;
   final bool enrolled;
   final bool archiveEnabled;
@@ -606,6 +646,7 @@ class _RowTitleLine extends StatelessWidget {
   const _RowTitleLine({
     required this.entry,
     required this.pinned,
+    required this.singleLineMetadata,
     required this.account,
     required this.enrolled,
     required this.archiveEnabled,
@@ -674,48 +715,78 @@ class _RowTitleLine extends StatelessWidget {
           _RowAuthWarning(authInfo: authInfo, onPressed: onAuthPressed),
         ]),
         const Gap(AlembicShadcnTokens.gapXs),
-        Wrap(
-            spacing: AlembicShadcnTokens.gapSm,
-            runSpacing: AlembicShadcnTokens.gapXs,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: <Widget>[
-              _RowStateMark(state: entry.repoState, syncing: entry.syncing),
-              Text(
-                entry.dto.owner,
+        if (singleLineMetadata)
+          Row(children: <Widget>[
+            _RowStateMark(state: entry.repoState, syncing: entry.syncing),
+            const Gap(AlembicShadcnTokens.gapSm),
+            Expanded(
+              child: Text(
+                <String>[
+                  entry.dto.owner,
+                  if (entry.dto.isArchived) 'GitHub archived',
+                  if (_showAccountChip) account!.name,
+                  if (enrolled) 'Archive Master',
+                ].join(' · '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: theme.typography.xSmall.copyWith(
-                  fontSize: 12,
-                  color: theme.colorScheme.mutedForeground,
-                ),
+                    fontSize: 12, color: theme.colorScheme.mutedForeground),
               ),
-              if (_showCountdown) ...<Widget>[
+            ),
+            if (_showCountdown) ...<Widget>[
+              const Gap(AlembicShadcnTokens.gapSm),
+              Text(_countdownLabel,
+                  style: theme.typography.xSmall.copyWith(
+                      fontSize: 12,
+                      color: entry.daysUntilArchive <= 3
+                          ? AlembicShadcnTokens.warning(theme)
+                          : theme.colorScheme.mutedForeground,
+                      fontWeight: FontWeight.w600)),
+            ],
+          ])
+        else
+          Wrap(
+              spacing: AlembicShadcnTokens.gapSm,
+              runSpacing: AlembicShadcnTokens.gapXs,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: <Widget>[
+                _RowStateMark(state: entry.repoState, syncing: entry.syncing),
                 Text(
-                  _countdownLabel,
+                  entry.dto.owner,
                   style: theme.typography.xSmall.copyWith(
                     fontSize: 12,
-                    color: entry.daysUntilArchive <= 3
-                        ? AlembicShadcnTokens.warning(theme)
-                        : theme.colorScheme.mutedForeground,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-              if (entry.dto.isArchived) ...<Widget>[
-                const _MicroBadge(label: 'GitHub archived'),
-              ],
-              if (_showAccountChip) ...<Widget>[
-                _MicroBadge(label: account?.name ?? ''),
-              ],
-              if (enrolled) ...<Widget>[
-                Semantics(
-                  label: 'Archive Master',
-                  child: m.Icon(
-                    LucideIcons.cloudDownload,
-                    size: 11,
                     color: theme.colorScheme.mutedForeground,
                   ),
                 ),
-              ],
-            ]),
+                if (_showCountdown) ...<Widget>[
+                  Text(
+                    _countdownLabel,
+                    style: theme.typography.xSmall.copyWith(
+                      fontSize: 12,
+                      color: entry.daysUntilArchive <= 3
+                          ? AlembicShadcnTokens.warning(theme)
+                          : theme.colorScheme.mutedForeground,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                if (entry.dto.isArchived) ...<Widget>[
+                  const _MicroBadge(label: 'GitHub archived'),
+                ],
+                if (_showAccountChip) ...<Widget>[
+                  _MicroBadge(label: account?.name ?? ''),
+                ],
+                if (enrolled) ...<Widget>[
+                  Semantics(
+                    label: 'Archive Master',
+                    child: m.Icon(
+                      LucideIcons.cloudDownload,
+                      size: 11,
+                      color: theme.colorScheme.mutedForeground,
+                    ),
+                  ),
+                ],
+              ]),
       ],
     );
   }
