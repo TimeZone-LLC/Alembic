@@ -24,6 +24,7 @@ class HomeTopBar extends StatelessWidget {
   final bool showFilters;
   final FocusNode? searchFocusNode;
   final VoidCallback? onToggleSidebar;
+  final VoidCallback? onQuickSwitcher;
 
   const HomeTopBar({
     super.key,
@@ -48,6 +49,7 @@ class HomeTopBar extends StatelessWidget {
     this.showFilters = true,
     this.searchFocusNode,
     this.onToggleSidebar,
+    this.onQuickSwitcher,
   });
 
   @override
@@ -61,6 +63,20 @@ class HomeTopBar extends StatelessWidget {
           final Widget actions = Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
+              if (onQuickSwitcher != null) ...<Widget>[
+                AlembicToolbarButton(
+                  label: 'Quick switcher',
+                  leadingIcon: LucideIcons.command,
+                  onPressed: onQuickSwitcher,
+                  quiet: true,
+                  compact: true,
+                  iconOnly: true,
+                  tooltip: Platform.isMacOS
+                      ? 'Quick switcher (⌘K)'
+                      : 'Quick switcher (Ctrl+K)',
+                ),
+                const Gap(4),
+              ],
               AlembicToolbarButton(
                 label: 'Import',
                 leadingIcon: LucideIcons.folderInput,

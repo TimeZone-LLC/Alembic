@@ -16,6 +16,7 @@ import 'package:alembic/screen/home/home_activity_strip.dart';
 import 'package:alembic/screen/home/home_bulk_actions.dart';
 import 'package:alembic/screen/home/home_clone_dialog.dart';
 import 'package:alembic/screen/home/home_controller.dart';
+import 'package:alembic/screen/home/home_quick_switcher.dart';
 import 'package:alembic/screen/home/home_repository_browser.dart';
 import 'package:alembic/screen/home/home_repository_operations.dart';
 import 'package:alembic/screen/home/home_repository_rows.dart';
@@ -73,6 +74,7 @@ class _AlembicHomeState extends State<AlembicHome> {
   final m.FocusNode _searchFocusNode =
       m.FocusNode(debugLabel: 'Repository search');
   bool _sidebarVisible = true;
+  bool _quickSwitcherOpen = false;
 
   StreamSubscription<RepositoryListState>? _listSubscription;
   StreamSubscription<WorkspaceScanSnapshot>? _scanSubscription;
@@ -225,6 +227,48 @@ class _AlembicHomeState extends State<AlembicHome> {
     if (action == AlembicTrayMenuAction.toggleSidebar) {
       _toggleSidebar();
     }
+    if (action == AlembicTrayMenuAction.quickSwitcher) {
+      unawaited(_openQuickSwitcher());
+    }
+  }
+
+  Future<void> _openQuickSwitcher() async {
+    if (_quickSwitcherOpen) return;
+    _quickSwitcherOpen = true;
+    final List<HomeRepositoryEntry> entries = _controller.buildEntries(
+      listState: _listState,
+      snapshot: _snapshot,
+    );
+    QuickSwitcherSelection? selection;
+    try {
+      selection = await showHomeQuickSwitcher(context, entries: entries);
+    } finally {
+      _quickSwitcherOpen = false;
+    }
+    if (!mounted || selection == null) return;
+    final HomeRepositoryEntry entry = selection.entry;
+    if (selection.action == QuickRepositoryAction.inspect) {
+      await _showRepositoryDetails(entry);
+      return;
+    }
+    final String? accountId =
+        _controller.accountIdForRepository(entry.repository);
+    final RepositoryActionResult result = await switch (selection.action) {
+      QuickRepositoryAction.open =>
+        widget.actionsController.open(entry.fullName, accountId: accountId),
+      QuickRepositoryAction.reveal => widget.actionsController
+          .openInFinder(entry.fullName, accountId: accountId),
+      QuickRepositoryAction.pull =>
+        widget.actionsController.pull(entry.fullName, accountId: accountId),
+      QuickRepositoryAction.inspect =>
+        throw StateError('Inspect already handled'),
+    };
+    if (!result.ok && mounted) {
+      await showAlembicInfoDialog(context,
+          title: 'Repository action failed',
+          message: result.error ?? 'Try again from the repository inspector.');
+    }
+    await _afterMutation();
   }
 
   void _focusSearch() {
@@ -528,6 +572,7 @@ class _AlembicHomeState extends State<AlembicHome> {
                         onBulkActions: () =>
                             unawaited(_bulkActions.showActionsDialog(context)),
                         onOpenSettings: _openSettings,
+                        onQuickSwitcher: () => unawaited(_openQuickSwitcher()),
                       )),
                   Divider(color: Theme.of(context).colorScheme.border),
                   if (showList &&
@@ -582,6 +627,10 @@ class _AlembicHomeState extends State<AlembicHome> {
             _focusSearch,
         const m.SingleActivator(services.LogicalKeyboardKey.keyF,
             control: true): _focusSearch,
+        const m.SingleActivator(services.LogicalKeyboardKey.keyK, meta: true):
+            () => unawaited(_openQuickSwitcher()),
+        const m.SingleActivator(services.LogicalKeyboardKey.keyK,
+            control: true): () => unawaited(_openQuickSwitcher()),
         const m.SingleActivator(services.LogicalKeyboardKey.keyS,
             meta: true, alt: true): _toggleSidebar,
         const m.SingleActivator(services.LogicalKeyboardKey.keyI,

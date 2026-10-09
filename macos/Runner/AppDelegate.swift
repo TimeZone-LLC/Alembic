@@ -50,6 +50,8 @@ class AppDelegate: FlutterAppDelegate {
 
     let viewMenu: NSMenu = NSMenu(title: "View")
     viewMenu.autoenablesItems = false
+    viewMenu.addItem(workspaceItem("Quick Switcher…", key: "quickSwitcher", shortcut: "k"))
+    viewMenu.addItem(NSMenuItem.separator())
     viewMenu.addItem(workspaceItem("Show or Hide Sidebar", key: "toggleSidebar", shortcut: "s", modifiers: [.command, .option]))
     let viewItem: NSMenuItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
     viewItem.submenu = viewMenu

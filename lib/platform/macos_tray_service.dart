@@ -11,6 +11,7 @@ enum AlembicTrayMenuAction {
   clone,
   search,
   toggleSidebar,
+  quickSwitcher,
   resetPosition,
   restart,
   quit;
@@ -24,6 +25,7 @@ enum AlembicTrayMenuAction {
         'clone' => AlembicTrayMenuAction.clone,
         'search' => AlembicTrayMenuAction.search,
         'toggleSidebar' => AlembicTrayMenuAction.toggleSidebar,
+        'quickSwitcher' => AlembicTrayMenuAction.quickSwitcher,
         'resetPosition' => AlembicTrayMenuAction.resetPosition,
         'restart' => AlembicTrayMenuAction.restart,
         'quit' => AlembicTrayMenuAction.quit,
