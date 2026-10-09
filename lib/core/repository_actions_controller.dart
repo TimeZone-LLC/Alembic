@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:alembic/bloc/repository_list_store.dart';
 import 'package:alembic/core/arcane_repository.dart';
+import 'package:alembic/core/archive_preview_service.dart';
+import 'package:alembic/core/git_status_service.dart';
 import 'package:alembic/core/diagnostics.dart';
 import 'package:alembic/core/repo_import_scanner.dart';
 import 'package:alembic/core/repository_runtime.dart';
@@ -122,11 +124,21 @@ class RepositoryActionsController {
   }) =>
       _run(fullName, accountId, (ctx) => ctx.arcane.openInFinder());
 
+  Future<ArchivePreview?> getArchivePreview(String fullName,
+      {String? accountId}) async {
+    final _ActionContext? ctx = _resolveContext(fullName, accountId);
+    if (ctx == null) return null;
+    return ArchivePreviewService.instance.inspect(
+        sourcePath: ctx.arcane.repoPath, destinationPath: ctx.arcane.imagePath);
+  }
+
   Future<RepositoryActionResult> archive(
     String fullName, {
     String? accountId,
+    bool risksAcknowledged = false,
   }) =>
-      _run(fullName, accountId, (ctx) => ctx.arcane.archive(),
+      _run(fullName, accountId,
+          (ctx) => ctx.arcane.archive(risksAcknowledged: risksAcknowledged),
           requiresArchiveEnabled: true);
 
   Future<RepositoryActionResult> unarchive(
@@ -429,7 +441,11 @@ class RepositoryActionsController {
         );
       }
       try {
-        await action(ctx);
+        try {
+          await action(ctx);
+        } finally {
+          GitStatusService.instance.invalidate(ctx.arcane.repoPath);
+        }
         RepoState state = await ctx.arcane.state;
         return RepositoryActionResult.success(
           fullName: ctx.repository.fullName,
