@@ -1,13 +1,28 @@
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:arcane/generated/arcane_shadcn/shadcn_flutter.dart'
+    show showDialog;
+
+PageRoute<T> alembicPageRoute<T>({required WidgetBuilder builder}) =>
+    PageRouteBuilder<T>(
+      pageBuilder: (BuildContext context, Animation<double> animation,
+              Animation<double> secondaryAnimation) =>
+          builder(context),
+      transitionDuration: const Duration(milliseconds: 160),
+      reverseTransitionDuration: const Duration(milliseconds: 120),
+      transitionsBuilder: (BuildContext context, Animation<double> animation,
+              Animation<double> secondaryAnimation, Widget child) =>
+          MediaQuery.disableAnimationsOf(context)
+              ? child
+              : FadeTransition(opacity: animation, child: child),
+    );
 
 Future<void> showAlembicInfoDialog(
   BuildContext context, {
   required String title,
   required String message,
 }) {
-  return m.showDialog<void>(
+  return showDialog<void>(
     context: context,
     builder: (BuildContext dialogContext) => AlembicDialogCard(
       title: title,
@@ -31,7 +46,7 @@ Future<bool> showAlembicConfirmDialog(
   String cancelText = 'Cancel',
   bool destructive = false,
 }) async {
-  bool? result = await m.showDialog<bool>(
+  bool? result = await showDialog<bool>(
     context: context,
     builder: (BuildContext dialogContext) => AlembicDialogCard(
       title: title,
@@ -61,8 +76,8 @@ Future<String?> showAlembicInputDialog(
   required String placeholder,
   String confirmText = 'Save',
 }) async {
-  m.TextEditingController controller = m.TextEditingController();
-  String? result = await m.showDialog<String>(
+  TextEditingController controller = TextEditingController();
+  String? result = await showDialog<String>(
     context: context,
     builder: (BuildContext dialogContext) => AlembicDialogCard(
       title: title,

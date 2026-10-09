@@ -1,15 +1,8 @@
 import 'package:alembic/ui/alembic_controls.dart';
-import 'package:alembic/ui/alembic_layout.dart';
 import 'package:alembic/ui/alembic_tokens.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
 
 class AlembicSettingsPane extends StatelessWidget {
-  static const EdgeInsets _rowPadding =
-      EdgeInsets.symmetric(horizontal: 10, vertical: 9);
-  static const EdgeInsets _sectionHeaderPadding =
-      EdgeInsets.symmetric(horizontal: 10, vertical: 8);
-
   final String title;
   final String subtitle;
   final List<Widget> children;
@@ -25,41 +18,73 @@ class AlembicSettingsPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
-    List<Widget> rows = <Widget>[
-      Padding(
-        padding: const EdgeInsets.only(
-          bottom: AlembicShadcnTokens.gapMd,
+    final ThemeData theme = Theme.of(context);
+    final List<Widget> groups = <Widget>[];
+    final List<Widget> rows = <Widget>[];
+
+    void finishGroup() {
+      if (rows.isEmpty) return;
+      groups.add(Container(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.card,
+          borderRadius:
+              BorderRadius.circular(AlembicShadcnTokens.surfaceRadius),
         ),
-        child: AlembicSectionHeader(
-          title: title,
-          subtitle: subtitle,
-          trailing: trailing,
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            for (int i = 0; i < rows.length; i++) ...<Widget>[
+              if (i > 0)
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: theme.colorScheme.border,
+                ),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: rows[i],
+              ),
+            ],
+          ],
         ),
-      ),
-    ];
-    for (Widget child in children) {
-      rows.add(
-        m.Divider(
-          height: 1,
-          thickness: 1,
-          color: theme.colorScheme.border,
-        ),
-      );
-      rows.add(
-        Padding(
-          padding: child is AlembicSettingsSectionHeader
-              ? _sectionHeaderPadding
-              : _rowPadding,
-          child: child,
-        ),
-      );
+      ));
+      rows.clear();
     }
-    return AlembicPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: rows,
-      ),
+
+    for (final Widget child in children) {
+      if (child is AlembicSettingsSectionHeader) {
+        finishGroup();
+        groups.add(Padding(
+          padding: const EdgeInsets.only(top: 28, bottom: 10, left: 2),
+          child: child,
+        ));
+      } else {
+        rows.add(child);
+      }
+    }
+    finishGroup();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text(title,
+            style: theme.typography.large.copyWith(
+              fontWeight: FontWeight.w600,
+            )),
+        const Gap(6),
+        Text(subtitle,
+            style: theme.typography.small.copyWith(
+              color: theme.colorScheme.mutedForeground,
+              height: 1.5,
+            )),
+        if (trailing != null) ...<Widget>[
+          const Gap(16),
+          Align(alignment: AlignmentDirectional.centerStart, child: trailing!),
+        ],
+        const Gap(22),
+        ...groups,
+      ],
     );
   }
 }
@@ -106,8 +131,10 @@ class AlembicSettingsToggleRow extends StatelessWidget {
         title: title,
         description: description,
         trailing: Switch(
+          key: ValueKey<String>(title),
           value: value,
           onChanged: onChanged,
+          activeThumbColor: Theme.of(context).colorScheme.primaryForeground,
         ),
       );
 }
@@ -136,6 +163,7 @@ class AlembicSettingsActionRow extends StatelessWidget {
         trailing: AlembicToolbarButton(
           onPressed: onPressed,
           label: actionLabel,
+          compact: true,
         ),
       );
 }
@@ -193,13 +221,19 @@ class AlembicSettingsMenuRow<T> extends StatelessWidget {
           label: itemLabel(item),
         ),
     ];
-    return _AlembicSettingsBaseRow(
-      title: title,
-      description: description,
-      trailing: AlembicSelect<T>(
-        value: items.firstWhere((T item) => itemLabel(item) == valueLabel),
-        options: options,
-        onChanged: onSelected,
+    final Widget control = AlembicSelect<T>(
+      compact: true,
+      value: items.firstWhere((T item) => itemLabel(item) == valueLabel),
+      options: options,
+      onChanged: onSelected,
+    );
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) =>
+          _AlembicSettingsBaseRow(
+        title: title,
+        description: description,
+        below: constraints.maxWidth < 520 ? control : null,
+        trailing: constraints.maxWidth < 520 ? null : control,
       ),
     );
   }
@@ -264,11 +298,13 @@ class _AlembicSettingsBaseRow extends StatelessWidget {
                   color: theme.colorScheme.mutedForeground,
                 ),
               ),
-              if (value != null) ...<Widget>[
+              if (value != null && value!.isNotEmpty) ...<Widget>[
                 const Gap(AlembicShadcnTokens.gapSm),
                 Text(
                   value!,
-                  style: theme.typography.small,
+                  style: theme.typography.xSmall.copyWith(
+                    color: theme.colorScheme.mutedForeground,
+                  ),
                 ),
               ],
               if (below != null) ...<Widget>[
@@ -280,7 +316,13 @@ class _AlembicSettingsBaseRow extends StatelessWidget {
         ),
         if (trailing != null) ...<Widget>[
           const Gap(AlembicShadcnTokens.gapLg),
-          trailing!,
+          Flexible(
+            flex: 0,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 210),
+              child: trailing!,
+            ),
+          ),
         ],
       ],
     );

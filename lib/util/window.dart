@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:alembic/main.dart';
 import 'package:alembic/platform/desktop_platform_adapter.dart';
 import 'package:alembic/platform/macos_tray_service.dart';
+import 'package:alembic/platform/desktop_restart.dart';
 import 'package:fast_log/fast_log.dart';
 import 'package:flutter/services.dart';
 import 'package:screen_retriever/screen_retriever.dart';
@@ -266,10 +267,11 @@ class WindowUtil {
   }
 
   static Future<void> restart() async {
-    await Process.start(
-      Platform.resolvedExecutable,
-      <String>[],
-      mode: ProcessStartMode.detached,
+    await box.flush();
+    await boxSettings.flush();
+    await DesktopRestart.launchAfterExit(
+      executable: Platform.resolvedExecutable,
+      processId: pid,
     );
     await _safeWindowCall('destroy window', windowManager.destroy);
     exit(0);

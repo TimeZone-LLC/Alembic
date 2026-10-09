@@ -1,7 +1,7 @@
 import 'package:alembic/domain/repository_dto.dart';
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
 import 'package:url_launcher/url_launcher_string.dart';
 
 const String alembicGenerateTokenUrl =
@@ -44,7 +44,7 @@ class HomeWelcomeState extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 m.Icon(
-                  m.Icons.water_drop_outlined,
+                  LucideIcons.flaskConical,
                   size: 36,
                   color: theme.colorScheme.foreground,
                 ),
@@ -67,14 +67,14 @@ class HomeWelcomeState extends StatelessWidget {
                 const Gap(AlembicShadcnTokens.gapLg),
                 AlembicToolbarButton(
                   label: 'Connect with Personal Access Token',
-                  leadingIcon: m.Icons.vpn_key_outlined,
+                  leadingIcon: LucideIcons.keyRound,
                   onPressed: onConnect,
                   prominent: true,
                 ),
                 const Gap(AlembicShadcnTokens.gapSm),
                 AlembicToolbarButton(
                   label: 'Generate new token on GitHub',
-                  leadingIcon: m.Icons.open_in_new,
+                  leadingIcon: LucideIcons.externalLink,
                   quiet: true,
                   onPressed: () => launchUrlString(alembicGenerateTokenUrl),
                 ),
@@ -189,7 +189,7 @@ class HomeErrorState extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 m.Icon(
-                  m.Icons.warning_amber_outlined,
+                  LucideIcons.triangleAlert,
                   size: 28,
                   color: theme.colorScheme.destructive,
                 ),
@@ -228,7 +228,7 @@ class HomeErrorState extends StatelessWidget {
                     ),
                     AlembicToolbarButton(
                       label: 'Retry',
-                      leadingIcon: m.Icons.refresh,
+                      leadingIcon: LucideIcons.refreshCw,
                       onPressed: onRetry,
                       prominent: true,
                     ),
@@ -265,7 +265,7 @@ class HomeEmptyState extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               m.Icon(
-                m.Icons.inbox_outlined,
+                LucideIcons.inbox,
                 size: 26,
                 color: theme.colorScheme.mutedForeground,
               ),
@@ -289,7 +289,7 @@ class HomeEmptyState extends StatelessWidget {
               const Gap(AlembicShadcnTokens.gapLg),
               AlembicToolbarButton(
                 label: 'Refresh',
-                leadingIcon: m.Icons.refresh,
+                leadingIcon: LucideIcons.refreshCw,
                 onPressed: onRefresh,
                 prominent: true,
               ),
@@ -333,7 +333,7 @@ class HomeRefreshErrorNotice extends StatelessWidget {
       child: Row(
         children: <Widget>[
           m.Icon(
-            m.Icons.warning_amber_outlined,
+            LucideIcons.triangleAlert,
             size: 16,
             color: theme.colorScheme.destructive,
           ),
@@ -383,20 +383,20 @@ class HomeRateLimitNotice extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: m.Color.alphaBlend(
-          const m.Color(0xFFE8930C).withValues(alpha: 0.12),
+          AlembicShadcnTokens.warning(theme).withValues(alpha: 0.12),
           theme.colorScheme.card,
         ),
         borderRadius: BorderRadius.circular(AlembicShadcnTokens.controlRadius),
         border: Border.all(
-          color: const m.Color(0xFFE8930C).withValues(alpha: 0.4),
+          color: AlembicShadcnTokens.warning(theme).withValues(alpha: 0.4),
         ),
       ),
       child: Row(
         children: <Widget>[
-          const m.Icon(
-            m.Icons.speed_outlined,
+          m.Icon(
+            LucideIcons.gauge,
             size: 16,
-            color: m.Color(0xFFE8930C),
+            color: AlembicShadcnTokens.warning(theme),
           ),
           const Gap(AlembicShadcnTokens.gapSm),
           Expanded(

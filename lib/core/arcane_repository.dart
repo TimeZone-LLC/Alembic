@@ -10,6 +10,7 @@ import 'package:alembic/util/archive_master.dart';
 import 'package:alembic/util/clone_transport.dart';
 import 'package:alembic/util/extensions.dart';
 import 'package:alembic/util/git_accounts.dart';
+import 'package:alembic/util/git_http_auth.dart';
 import 'package:alembic/util/git_signing.dart';
 import 'package:alembic/util/repo_config.dart';
 import 'package:archive/archive_io.dart';
@@ -28,6 +29,20 @@ typedef ArchiveFileExtractor = Future<void> Function(
   String source,
   String destination,
 );
+
+/// One way of cloning a repository: the remote URL git will persist plus the
+/// per-invocation environment, if any, that authenticates the transfer.
+class CloneAttempt {
+  final String label;
+  final String url;
+  final Map<String, String>? environment;
+
+  const CloneAttempt({
+    required this.label,
+    required this.url,
+    this.environment,
+  });
+}
 
 class ArcaneRepository {
   final Repository repository;
@@ -79,8 +94,7 @@ class ArcaneRepository {
     return '$path.alembic-$operation-$pid-$timestamp-$nonce';
   }
 
-  String get repoPath => expandPath(
-      "${config.workspaceDirectory}/${repository.owner?.login}/${repository.name}");
+  String get repoPath => repositoryWorkspacePath(repository.fullName);
 
   String get imagePath => expandPath(
       "${config.archiveDirectory}/archives/${repository.owner?.login ?? 'unknown'}/${repository.name}.zip");
@@ -89,22 +103,26 @@ class ArcaneRepository {
       "${config.archiveMasterDirectory}/${repository.owner?.login ?? 'unknown'}/${repository.name}");
 
   String get resolvedToken {
-    if (accountId != null) {
-      final GitAccount? specific = findGitAccountById(accountId);
-      if (specific != null && specific.token.isNotEmpty) {
-        return specific.token;
-      }
+    final String? transport = getRepoConfig(repository).authTransport;
+    if (transport == 'httpsPublic' || transport == 'ssh') {
+      return '';
     }
-    final GitAccount? primary = loadPrimaryGitAccount();
-    if (primary != null && primary.token.isNotEmpty) {
-      return primary.token;
+    final GitAccount? account = resolvedAccount;
+    if (account != null && account.token.isNotEmpty) {
+      return account.token;
     }
     return box.get(gitAccountsLegacyTokenKey, defaultValue: '').toString();
   }
 
   GitAccount? get resolvedAccount {
-    if (accountId != null) {
-      final GitAccount? specific = findGitAccountById(accountId);
+    final AlembicRepoConfig preference = getRepoConfig(repository);
+    if (preference.authTransport == 'httpsPublic' ||
+        preference.authTransport == 'ssh') {
+      return null;
+    }
+    final String? selectedId = preference.accountId ?? accountId;
+    if (selectedId != null) {
+      final GitAccount? specific = findGitAccountById(selectedId);
       if (specific != null) {
         return specific;
       }
@@ -112,9 +130,19 @@ class ArcaneRepository {
     return loadPrimaryGitAccount();
   }
 
-  String get authenticatedCloneUrl {
-    final String token = resolvedToken;
-    return "https://$token@github.com/${repository.owner?.login}/${repository.name}.git";
+  /// Environment that authenticates git against GitHub with this
+  /// repository's account, or null when no token is available. The token is
+  /// only ever supplied this way; remote URLs stay credential-free.
+  Map<String, String>? get gitAuthEnvironment {
+    final AlembicRepoConfig preference = getRepoConfig(repository);
+    if (preference.authTransport == 'ssh') {
+      final String? command = _sshCommand(preference.sshIdentityFile);
+      return command == null
+          ? null
+          : <String, String>{'GIT_SSH_COMMAND': command};
+    }
+    final String token = resolvedToken.trim();
+    return token.isEmpty ? null : gitHubTokenEnvironment(token);
   }
 
   String get publicCloneUrl {
@@ -122,7 +150,63 @@ class ArcaneRepository {
   }
 
   String get sshCloneUrl {
-    return "git@github.com:${repository.owner?.login}/${repository.name}.git";
+    return _sshUrl(getRepoConfig(repository));
+  }
+
+  String _sshUrl(AlembicRepoConfig preference) {
+    final String host = preference.sshHostAlias ?? 'github.com';
+    return 'git@$host:${repository.owner?.login}/${repository.name}.git';
+  }
+
+  String? _sshCommand(String? identityFile) {
+    if (identityFile == null || identityFile.trim().isEmpty) {
+      return null;
+    }
+    final String path =
+        expandPath(identityFile.trim()).replaceAll("'", "'\\''");
+    return "ssh -i '$path' -o IdentitiesOnly=yes";
+  }
+
+  Future<void> applyAuthenticationPreference({
+    String? checkoutPath,
+    AlembicRepoConfig? preference,
+    CommandRunner? runner,
+  }) async {
+    final AlembicRepoConfig selected = preference ?? getRepoConfig(repository);
+    if (selected.authTransport == null) {
+      return;
+    }
+    final String path = checkoutPath ?? repoPath;
+    if (!await Directory('$path/.git').exists()) {
+      return;
+    }
+    final CommandRunner run = runner ?? commandRunner;
+    final bool ssh = selected.authTransport == 'ssh';
+    final int remoteExit = await run('git', <String>[
+      '-C',
+      path,
+      'remote',
+      'set-url',
+      'origin',
+      ssh ? _sshUrl(selected) : publicCloneUrl,
+    ]);
+    if (remoteExit != 0) {
+      throw Exception('Failed to set remote.origin.url');
+    }
+    final String? sshCommand =
+        ssh ? _sshCommand(selected.sshIdentityFile) : null;
+    final int configExit = await run('git', <String>[
+      '-C',
+      path,
+      'config',
+      '--local',
+      if (sshCommand == null) '--unset',
+      'core.sshCommand',
+      if (sshCommand != null) sshCommand,
+    ]);
+    if (configExit != 0 && !(sshCommand == null && configExit == 5)) {
+      throw Exception('Failed to configure core.sshCommand');
+    }
   }
 
   bool shouldBeSpecific() {
@@ -265,51 +349,44 @@ class ArcaneRepository {
     return runtime.streamWorkEntries(repository);
   }
 
-  Future<bool> checkAndUpdateToken(String latestToken) async {
-    if (!await isActive) {
+  /// Rewrites `remote.origin.url` of the checkout at [checkoutPath] (default
+  /// [repoPath]) when it still embeds credentials written by an earlier
+  /// Alembic version. Returns true when the remote was rewritten.
+  Future<bool> scrubRemoteCredentials({String? checkoutPath}) async {
+    final String path = checkoutPath ?? repoPath;
+    if (!await Directory("$path/.git").exists()) {
       return false;
     }
 
     try {
-      final Directory gitDir = Directory("$repoPath/.git");
-      if (!await gitDir.exists()) {
-        return false;
-      }
-
       final BehaviorSubject<String> stdout = BehaviorSubject<String>();
       final BehaviorSubject<String> stderr = BehaviorSubject<String>();
       await commandRunner(
         'git',
-        <String>['-C', repoPath, 'config', '--get', 'remote.origin.url'],
+        <String>['-C', path, 'config', '--get', 'remote.origin.url'],
         stdout: stdout,
         stderr: stderr,
         redactOutput: false,
       );
-      final String? currentUrl = stdout.valueOrNull;
+      final String currentUrl = (stdout.valueOrNull ?? '').trim();
       await stdout.close();
       await stderr.close();
-      if (currentUrl == null || currentUrl.isEmpty) {
+      if (currentUrl.isEmpty) {
         return false;
       }
 
-      if (currentUrl.contains("@github.com")) {
-        final RegExp tokenRegex = RegExp(r'https://([^@]+)@github\.com');
-        final RegExpMatch? match = tokenRegex.firstMatch(currentUrl);
-        if (match != null && match.group(1) != latestToken) {
-          info("Updating token for repository ${repository.fullName}");
-          final String updatedUrl =
-              "https://$latestToken@github.com/${repository.owner?.login}/${repository.name}.git";
-          final int exitCode = await commandRunner(
-            'git',
-            <String>['-C', repoPath, 'remote', 'set-url', 'origin', updatedUrl],
-          );
-          return exitCode == 0;
-        }
+      final String cleanUrl = stripUrlCredentials(currentUrl);
+      if (cleanUrl == currentUrl) {
+        return false;
       }
-
-      return false;
+      info("Removing embedded credentials from ${repository.fullName} remote");
+      final int exitCode = await commandRunner(
+        'git',
+        <String>['-C', path, 'remote', 'set-url', 'origin', cleanUrl],
+      );
+      return exitCode == 0;
     } catch (e) {
-      error("Error checking token for ${repository.fullName}: $e");
+      error("Error scrubbing remote for ${repository.fullName}: $e");
       return false;
     }
   }
@@ -347,13 +424,11 @@ class ArcaneRepository {
         runtime.addSyncingRepository(repository);
         try {
           await Directory(repoPath).parent.create(recursive: true);
-          List<String> cloneCandidates = buildCloneCandidates();
+          List<CloneAttempt> cloneAttempts = buildCloneAttempts();
           List<String> failures = <String>[];
           bool cloned = false;
-          for (String cloneUrl in cloneCandidates) {
-            String candidateLabel = cloneUrl == publicCloneUrl
-                ? 'public'
-                : (cloneUrl == sshCloneUrl ? 'ssh' : 'authenticated');
+          for (CloneAttempt attempt in cloneAttempts) {
+            String candidateLabel = attempt.label;
             Directory target = Directory(repoPath);
             if (await target.exists()) {
               await target.delete(recursive: true);
@@ -377,9 +452,10 @@ class ArcaneRepository {
             try {
               exitCode = await commandRunner(
                 'git',
-                <String>['clone', cloneUrl, repoPath],
+                <String>['clone', attempt.url, repoPath],
                 stdout: stdout,
                 stderr: stderr,
+                environment: attempt.environment,
               );
             } finally {
               await stdoutSubscription.cancel();
@@ -443,28 +519,44 @@ class ArcaneRepository {
     );
   }
 
-  List<String> buildCloneCandidates() {
-    final List<String> candidates = <String>[];
-    final CloneTransportMode cloneMode = loadCloneTransportMode();
-    if (cloneMode == CloneTransportMode.sshPreferred) {
-      candidates.add(sshCloneUrl);
+  List<CloneAttempt> buildCloneAttempts() {
+    final String? transport = getRepoConfig(repository).authTransport;
+    if (transport == 'ssh') {
+      return <CloneAttempt>[
+        CloneAttempt(
+            label: 'ssh', url: sshCloneUrl, environment: gitAuthEnvironment),
+      ];
     }
-    final String token = resolvedToken.trim();
-    if (token.isNotEmpty) {
-      candidates.add(authenticatedCloneUrl);
+    if (transport == 'httpsPublic') {
+      return <CloneAttempt>[CloneAttempt(label: 'public', url: publicCloneUrl)];
     }
-    candidates.add(publicCloneUrl);
-    final Map<String, String> deduped = <String, String>{};
-    for (final String candidate in candidates) {
-      deduped[candidate] = candidate;
+    final List<CloneAttempt> attempts = <CloneAttempt>[];
+    if (transport == null &&
+        loadCloneTransportMode() == CloneTransportMode.sshPreferred) {
+      attempts.add(CloneAttempt(label: 'ssh', url: sshCloneUrl));
     }
-    return deduped.values.toList();
+    final Map<String, String>? authEnvironment = gitAuthEnvironment;
+    if (authEnvironment != null) {
+      attempts.add(CloneAttempt(
+        label: 'authenticated',
+        url: publicCloneUrl,
+        environment: authEnvironment,
+      ));
+    }
+    attempts.add(CloneAttempt(label: 'public', url: publicCloneUrl));
+    return attempts;
   }
 
   Future<void> ensureRepositoryUpdated(GitHub github) {
     return doWork<void>("Pulling", () async {
       info("Pulling ${repository.fullName}");
-      if (await commandRunner('git', <String>['-C', repoPath, 'pull']) != 0) {
+      await applyAuthenticationPreference();
+      final int exitCode = await commandRunner(
+        'git',
+        <String>['-C', repoPath, 'pull'],
+        environment: gitAuthEnvironment,
+      );
+      if (exitCode != 0) {
         throw Exception('Git pull failed!');
       }
       success("Pulled ${repository.fullName}");
@@ -588,6 +680,7 @@ class ArcaneRepository {
           ..lastOpen = DateTime.timestamp().millisecondsSinceEpoch,
       );
       await _ensureSigningGuard();
+      await scrubRemoteCredentials();
 
       final Future<void> pull = ensureRepositoryUpdated(github);
       if (waitForPull) {
@@ -690,20 +783,19 @@ class ArcaneRepository {
       if (await target.exists()) {
         await target.delete(recursive: true);
       }
-      final List<String> cloneCandidates = buildCloneCandidates();
+      final List<CloneAttempt> cloneAttempts = buildCloneAttempts();
       final List<String> failures = <String>[];
       bool cloned = false;
-      for (final String cloneUrl in cloneCandidates) {
-        final String candidateLabel = cloneUrl == publicCloneUrl
-            ? 'public'
-            : (cloneUrl == sshCloneUrl ? 'ssh' : 'authenticated');
+      for (final CloneAttempt attempt in cloneAttempts) {
+        final String candidateLabel = attempt.label;
         final BehaviorSubject<String> stdout = BehaviorSubject<String>();
         final BehaviorSubject<String> stderr = BehaviorSubject<String>();
         final int exitCode = await commandRunner(
           'git',
-          <String>['clone', cloneUrl, archiveMasterPath],
+          <String>['clone', attempt.url, archiveMasterPath],
           stdout: stdout,
           stderr: stderr,
+          environment: attempt.environment,
         );
         final String failureContext = sanitizeSecrets(
           stderr.valueOrNull ?? stdout.valueOrNull ?? 'exit code $exitCode',
@@ -735,9 +827,13 @@ class ArcaneRepository {
     runtime.addSyncingRepository(repository);
     try {
       info("Pulling archive master ${repository.fullName}");
+      await applyAuthenticationPreference(checkoutPath: archiveMasterPath);
+      await scrubRemoteCredentials(checkoutPath: archiveMasterPath);
+      final Map<String, String>? authEnvironment = gitAuthEnvironment;
       final int fetchExit = await commandRunner(
         'git',
         <String>['-C', archiveMasterPath, 'fetch', '--all', '--prune'],
+        environment: authEnvironment,
       );
       if (fetchExit != 0) {
         throw Exception(
@@ -748,6 +844,7 @@ class ArcaneRepository {
       final int pullExit = await commandRunner(
         'git',
         <String>['-C', archiveMasterPath, 'pull', '--ff-only'],
+        environment: authEnvironment,
       );
       if (pullExit != 0) {
         throw Exception(
@@ -786,15 +883,16 @@ class ArcaneRepository {
           'Workspace already contains an active checkout for ${repository.fullName}',
         );
       }
+      final Directory targetDir = Directory(repoPath);
+      if (await FileSystemEntity.type(targetDir.path, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        throw Exception('Workspace path already exists: $repoPath');
+      }
+      await targetDir.parent.create(recursive: true);
+      await _moveDirectory(masterDir, targetDir);
       if (await isArchived) {
         await File(imagePath).delete();
       }
-      final Directory targetDir = Directory(repoPath);
-      await targetDir.parent.create(recursive: true);
-      if (await targetDir.exists()) {
-        await targetDir.delete(recursive: true);
-      }
-      await _moveDirectory(masterDir, targetDir);
       await removeArchiveMasterRepoState(repository.fullName);
       runtime.addActiveRepository(repository);
       setRepoConfig(
@@ -826,25 +924,34 @@ class ArcaneRepository {
       await source.rename(target.path);
       return;
     } catch (_) {}
-    await target.create(recursive: true);
-    await for (FileSystemEntity entity in source.list(
-      recursive: true,
-      followLinks: false,
-    )) {
-      final String relative = entity.path.substring(source.path.length);
-      final String relativeNormalized =
-          relative.startsWith(Platform.pathSeparator) ||
-                  relative.startsWith('/')
-              ? relative.substring(1)
-              : relative;
-      final String destinationPath =
-          "${target.path}${Platform.pathSeparator}$relativeNormalized";
-      if (entity is Directory) {
-        await Directory(destinationPath).create(recursive: true);
-      } else if (entity is File) {
-        await Directory(File(destinationPath).parent.path)
-            .create(recursive: true);
-        await entity.copy(destinationPath);
+    final Directory staging =
+        Directory(_temporarySiblingPath(target.path, 'promotion'));
+    try {
+      await staging.create();
+      await for (final FileSystemEntity entity in source.list(
+        recursive: true,
+        followLinks: false,
+      )) {
+        final String relative = entity.path.substring(source.path.length);
+        final String destinationPath = '${staging.path}$relative';
+        if (entity is Directory) {
+          await Directory(destinationPath).create(recursive: true);
+        } else if (entity is Link) {
+          await Link(destinationPath).parent.create(recursive: true);
+          await Link(destinationPath).create(await entity.target());
+        } else if (entity is File) {
+          await File(destinationPath).parent.create(recursive: true);
+          await entity.copy(destinationPath);
+        }
+      }
+      if (await FileSystemEntity.type(target.path, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        throw Exception('Workspace path already exists: ${target.path}');
+      }
+      await staging.rename(target.path);
+    } finally {
+      if (await staging.exists()) {
+        await staging.delete(recursive: true);
       }
     }
     if (await source.exists()) {

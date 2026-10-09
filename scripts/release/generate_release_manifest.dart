@@ -9,7 +9,7 @@ Future<void> main(List<String> args) async {
 }
 
 class ReleaseManifestCommand {
-  static const String defaultRepository = 'ArcaneArts/alembic';
+  static const String defaultRepository = 'TimeZone-LLC/Alembic';
 
   final String distPath;
   final String version;

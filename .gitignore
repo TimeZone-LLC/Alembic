@@ -60,12 +60,13 @@ CODE_STYLE_DART.md
 
 CODE_STYLE_MODDING.md
 
-test/
-!test/
-test/*
-!test/release/
-!test/release/**
-!test/update/
-!test/update/**
-!test/optimization/
-!test/optimization/**
+# Agent plans and generated verification output
+/plans/
+/.agent-notes/
+/.qa/
+/artifacts/
+/coverage/
+/playwright-report/
+/test-results/
+/release-ci/
+/release/

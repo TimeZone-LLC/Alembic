@@ -1,14 +1,15 @@
 import 'dart:async';
 
 import 'package:alembic/core/diagnostics.dart';
+import 'package:alembic/app/alembic_dialogs.dart';
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 Future<void> showDiagnosticsConsole(BuildContext context) =>
     Navigator.of(context, rootNavigator: true).push(
-      m.MaterialPageRoute<void>(
+      alembicPageRoute<void>(
         builder: (_) => const DiagnosticsConsoleScreen(),
       ),
     );
@@ -50,8 +51,9 @@ class _DiagnosticsConsoleScreenState extends State<DiagnosticsConsoleScreen> {
   String _searchText = '';
   bool _autoScroll = true;
 
-  int get _warnCount =>
-      _entries.where((entry) => entry.level == AlembicDiagnosticsLevel.warn).length;
+  int get _warnCount => _entries
+      .where((entry) => entry.level == AlembicDiagnosticsLevel.warn)
+      .length;
 
   int get _errorCount => _entries
       .where((entry) => entry.level == AlembicDiagnosticsLevel.error)
@@ -132,9 +134,9 @@ class _DiagnosticsConsoleScreenState extends State<DiagnosticsConsoleScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => m.Scaffold(
-        backgroundColor: m.Colors.transparent,
-        body: AlembicScaffold(
+  Widget build(BuildContext context) => ColoredBox(
+        color: Theme.of(context).colorScheme.background,
+        child: AlembicScaffold(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
@@ -147,10 +149,8 @@ class _DiagnosticsConsoleScreenState extends State<DiagnosticsConsoleScreen> {
               _DiagnosticsFilterBar(
                 levelFilter: _levelFilter,
                 autoScroll: _autoScroll,
-                onLevelChanged: (value) =>
-                    setState(() => _levelFilter = value),
-                onSearchChanged: (value) =>
-                    setState(() => _searchText = value),
+                onLevelChanged: (value) => setState(() => _levelFilter = value),
+                onSearchChanged: (value) => setState(() => _searchText = value),
                 onAutoScrollChanged: _setAutoScroll,
                 onCopyPressed: _copyFilteredLog,
               ),
@@ -181,42 +181,57 @@ class _DiagnosticsHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     ThemeData theme = Theme.of(context);
-    return AlembicPageHeader(
-      title: 'Live Diagnostics',
-      subtitle: 'Real-time stream of runtime events',
-      leading: AlembicToolbarButton(
-        label: 'Back',
-        iconOnly: true,
-        leadingIcon: m.Icons.arrow_back,
-        tooltip: 'Back',
-        onPressed: () => Navigator.of(context).pop(),
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          _DiagnosticsCountPill(
-            label: 'TOTAL',
-            value: '$totalCount',
-            tint: theme.colorScheme.mutedForeground,
+    final Widget counts = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        _DiagnosticsCountPill(
+          label: 'TOTAL',
+          value: '$totalCount',
+          tint: theme.colorScheme.mutedForeground,
+        ),
+        const Gap(AlembicShadcnTokens.gapSm),
+        _DiagnosticsCountPill(
+          label: 'WARN',
+          value: '$warnCount',
+          tint: warnCount > 0
+              ? AlembicShadcnTokens.warning(theme)
+              : theme.colorScheme.mutedForeground,
+        ),
+        const Gap(AlembicShadcnTokens.gapSm),
+        _DiagnosticsCountPill(
+          label: 'ERROR',
+          value: '$errorCount',
+          tint: errorCount > 0
+              ? theme.colorScheme.destructive
+              : theme.colorScheme.mutedForeground,
+        ),
+      ],
+    );
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final bool compact = constraints.maxWidth < 700;
+        final Widget header = AlembicPageHeader(
+          title: 'Live Diagnostics',
+          subtitle: 'Real-time stream of runtime events',
+          leading: AlembicToolbarButton(
+            label: 'Back',
+            iconOnly: true,
+            leadingIcon: LucideIcons.arrowLeft,
+            tooltip: 'Back',
+            onPressed: () => Navigator.of(context).pop(),
           ),
-          const Gap(AlembicShadcnTokens.gapSm),
-          _DiagnosticsCountPill(
-            label: 'WARN',
-            value: '$warnCount',
-            tint: warnCount > 0
-                ? _DiagnosticsColors.warn(theme)
-                : theme.colorScheme.mutedForeground,
-          ),
-          const Gap(AlembicShadcnTokens.gapSm),
-          _DiagnosticsCountPill(
-            label: 'ERROR',
-            value: '$errorCount',
-            tint: errorCount > 0
-                ? _DiagnosticsColors.error(theme)
-                : theme.colorScheme.mutedForeground,
-          ),
-        ],
-      ),
+          trailing: compact ? null : counts,
+        );
+        if (!compact) return header;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            header,
+            const Gap(AlembicShadcnTokens.gapMd),
+            counts,
+          ],
+        );
+      },
     );
   }
 }
@@ -315,45 +330,62 @@ class _DiagnosticsFilterBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     ThemeData theme = Theme.of(context);
-    return Row(
+    final Widget levels = ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: AlembicSegmentedControl<String>(
+        value: levelFilter,
+        options: _levelOptions,
+        onChanged: onLevelChanged,
+      ),
+    );
+    final Widget search = AlembicTextInput(
+      placeholder: 'Filter by tag or message',
+      leading: const m.Icon(LucideIcons.search),
+      onChanged: onSearchChanged,
+    );
+    final Widget actions = Row(
+      mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: AlembicSegmentedControl<String>(
-            value: levelFilter,
-            options: _levelOptions,
-            onChanged: onLevelChanged,
-          ),
-        ),
-        const Gap(AlembicShadcnTokens.gapMd),
-        Expanded(
-          child: AlembicTextInput(
-            placeholder: 'Filter by tag or message',
-            leading: const m.Icon(m.Icons.search),
-            onChanged: onSearchChanged,
-          ),
-        ),
-        const Gap(AlembicShadcnTokens.gapMd),
         Text(
           'Auto-scroll',
-          style: theme.typography.small.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
+          style: theme.typography.small.copyWith(fontWeight: FontWeight.w600),
         ),
         const Gap(AlembicShadcnTokens.gapSm),
-        Switch(
-          value: autoScroll,
-          onChanged: onAutoScrollChanged,
-        ),
+        Switch(value: autoScroll, onChanged: onAutoScrollChanged),
         const Gap(AlembicShadcnTokens.gapMd),
         AlembicToolbarButton(
           label: 'Copy',
           iconOnly: true,
-          leadingIcon: m.Icons.content_copy,
+          leadingIcon: LucideIcons.copy,
           tooltip: 'Copy filtered log to clipboard',
           onPressed: onCopyPressed,
         ),
       ],
+    );
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        if (constraints.maxWidth < 900) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              levels,
+              const Gap(AlembicShadcnTokens.gapMd),
+              search,
+              const Gap(AlembicShadcnTokens.gapMd),
+              Align(alignment: Alignment.centerRight, child: actions),
+            ],
+          );
+        }
+        return Row(
+          children: <Widget>[
+            levels,
+            const Gap(AlembicShadcnTokens.gapMd),
+            Expanded(child: search),
+            const Gap(AlembicShadcnTokens.gapMd),
+            actions,
+          ],
+        );
+      },
     );
   }
 }
@@ -371,7 +403,7 @@ class _DiagnosticsLogPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     ThemeData theme = Theme.of(context);
     Color background = m.Color.alphaBlend(
-      m.Colors.black.withValues(alpha: 0.18),
+      const Color(0xFF000000).withValues(alpha: 0.18),
       theme.colorScheme.card,
     );
     return Container(
@@ -413,57 +445,58 @@ class _DiagnosticsLogRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     ThemeData theme = Theme.of(context);
-    TextStyle monoStyle = theme.typography.xSmall.copyWith(
-      fontFamily: 'monospace',
+    final TextStyle monoStyle = theme.typography.xSmall.copyWith(
+      fontFamily: 'JetBrainsMono',
+    );
+    final Widget timestamp = Text(
+      entry.consoleTime,
+      style: monoStyle.copyWith(color: theme.colorScheme.mutedForeground),
+    );
+    final Widget level = Text(
+      entry.level.toUpperCase(),
+      style: monoStyle.copyWith(
+        color: _DiagnosticsColors.level(theme, entry.level),
+        fontWeight: FontWeight.w700,
+      ),
+    );
+    final Widget tag = Text(
+      entry.tag,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: monoStyle.copyWith(color: _DiagnosticsColors.tag(theme)),
+    );
+    final Widget message = SelectableText(
+      entry.message,
+      style: monoStyle.copyWith(color: theme.colorScheme.foreground),
     );
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          SizedBox(
-            width: 84,
-            child: Text(
-              entry.consoleTime,
-              style: monoStyle.copyWith(
-                color:
-                    theme.colorScheme.mutedForeground.withValues(alpha: 0.85),
-              ),
-            ),
-          ),
-          const Gap(6),
-          SizedBox(
-            width: 56,
-            child: Text(
-              entry.level.toUpperCase(),
-              style: monoStyle.copyWith(
-                color: _DiagnosticsColors.level(theme, entry.level),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const Gap(6),
-          SizedBox(
-            width: 130,
-            child: Text(
-              entry.tag,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: monoStyle.copyWith(
-                color: _DiagnosticsColors.tag(theme),
-              ),
-            ),
-          ),
-          const Gap(6),
-          Expanded(
-            child: m.SelectableText(
-              entry.message,
-              style: monoStyle.copyWith(
-                color: theme.colorScheme.foreground.withValues(alpha: 0.92),
-              ),
-            ),
-          ),
-        ],
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          if (constraints.maxWidth < 700) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Wrap(
+                    spacing: 10,
+                    runSpacing: 4,
+                    children: <Widget>[timestamp, level, tag]),
+                const Gap(4),
+                message,
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              SizedBox(width: 118, child: timestamp),
+              SizedBox(width: 82, child: level),
+              SizedBox(width: 140, child: tag),
+              const Gap(8),
+              Expanded(child: message),
+            ],
+          );
+        },
       ),
     );
   }
@@ -472,27 +505,12 @@ class _DiagnosticsLogRow extends StatelessWidget {
 class _DiagnosticsColors {
   const _DiagnosticsColors._();
 
-  static bool _isDark(ThemeData theme) =>
-      theme.colorScheme.brightness == Brightness.dark;
-
-  static Color error(ThemeData theme) =>
-      _isDark(theme) ? const Color(0xFFF87171) : const Color(0xFFDC2626);
-
-  static Color warn(ThemeData theme) =>
-      _isDark(theme) ? const Color(0xFFFBBF24) : const Color(0xFFD97706);
-
-  static Color success(ThemeData theme) =>
-      _isDark(theme) ? const Color(0xFF4ADE80) : const Color(0xFF16A34A);
-
-  static Color tag(ThemeData theme) =>
-      _isDark(theme) ? const Color(0xFF60A5FA) : const Color(0xFF2563EB);
+  static Color tag(ThemeData theme) => theme.colorScheme.ring;
 
   static Color level(ThemeData theme, String level) => switch (level) {
-        AlembicDiagnosticsLevel.error => error(theme),
-        AlembicDiagnosticsLevel.warn => warn(theme),
-        AlembicDiagnosticsLevel.success => success(theme),
-        AlembicDiagnosticsLevel.trace =>
-          theme.colorScheme.mutedForeground.withValues(alpha: 0.7),
+        AlembicDiagnosticsLevel.error => theme.colorScheme.destructive,
+        AlembicDiagnosticsLevel.warn => AlembicShadcnTokens.warning(theme),
+        AlembicDiagnosticsLevel.success => AlembicShadcnTokens.success(theme),
         _ => theme.colorScheme.mutedForeground,
       };
 }

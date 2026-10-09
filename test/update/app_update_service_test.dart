@@ -264,7 +264,7 @@ Future<ProcessResult> _runManifestGenerator({
       '--version',
       version,
       '--repository',
-      'ArcaneArts/alembic',
+      'TimeZone-LLC/Alembic',
       '--tag',
       'v$version',
       '--published-at',

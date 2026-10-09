@@ -8,6 +8,7 @@ import 'package:alembic/domain/repository_list_status.dart';
 import 'package:alembic/platform/desktop_platform_adapter.dart';
 import 'package:alembic/util/archive_master.dart';
 import 'package:alembic/util/repo_config.dart';
+import 'package:alembic/util/repository_catalog.dart';
 import 'package:github/github.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -199,6 +200,12 @@ class WorkspaceScanService {
       } catch (e) {
         _diagnostics.warn(_logTag, 'archive scan failed: $e');
         nextArchived = previousArchived;
+      }
+    }
+    for (final RepositoryRef ref in loadManualRepoRefs()) {
+      if (await Directory('${repositoryWorkspacePath(ref.fullName)}/.git')
+          .exists()) {
+        nextActive.add(ref.fullName.toLowerCase());
       }
     }
     _refreshDerivedSets(
@@ -435,12 +442,10 @@ class WorkspaceScanService {
     required Repository repository,
     required String workspaceDir,
   }) {
-    String owner = repository.owner?.login ?? 'unknown';
-    String ownerPath = DesktopPlatformAdapter.instance.joinPath(
-      workspaceDir,
-      owner,
+    return repositoryWorkspacePath(
+      repository.fullName,
+      workspaceDirectory: workspaceDir,
     );
-    return DesktopPlatformAdapter.instance.joinPath(ownerPath, repository.name);
   }
 
   String _repositoryKey(Repository repository) =>

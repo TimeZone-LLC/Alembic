@@ -12,7 +12,9 @@ import 'package:alembic/util/extensions.dart';
 import 'package:alembic/util/git_accounts.dart';
 import 'package:alembic/util/repo_config.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:arcane/generated/arcane_shadcn/shadcn_flutter.dart'
+    show showDialog;
+import 'package:flutter/widgets.dart' as m;
 import 'package:github/github.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
@@ -35,7 +37,7 @@ class RepositoryDetailDialog extends StatefulWidget {
   });
 
   static Future<void> open(BuildContext context, {required String fullName}) =>
-      m.showDialog<void>(
+      showDialog<void>(
         context: context,
         builder: (BuildContext dialogContext) => RepositoryDetailDialog(
           fullName: fullName,
@@ -290,7 +292,12 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
       _updateRepoConfig((value) => value.gitTool = tool);
 
   void _setAccountOverride(String? accountId) {
-    _updateRepoConfig((value) => value.accountId = accountId);
+    _updateRepoConfig((AlembicRepoConfig value) {
+      value.accountId = accountId;
+      value.authTransport = accountId == null ? null : 'httpsToken';
+      value.sshIdentityFile = null;
+      value.sshHostAlias = null;
+    });
     unawaited(_refreshDetail());
   }
 
@@ -303,7 +310,8 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
     RepositoryDetail? detail = _detail;
     AlembicRepoConfig? repoConfig = _repoConfig;
     bool ready = repository != null && detail != null && repoConfig != null;
-    return m.Dialog(
+    return ModalBackdrop(
+      surfaceClip: false,
       child: ConstrainedBox(
         constraints: const BoxConstraints(
           minWidth: RepositoryDetailDialog.minDialogWidth,
@@ -321,7 +329,7 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
                   trailing: AlembicToolbarButton(
                     onPressed: () => Navigator.of(context).pop(),
                     label: 'Close',
-                    leadingIcon: m.Icons.close,
+                    leadingIcon: LucideIcons.x,
                     iconOnly: true,
                   ),
                 )
@@ -474,10 +482,10 @@ class _DetailHeader extends StatelessWidget {
   });
 
   IconData get _stateIcon => switch (state) {
-        RepoStateValue.active => m.Icons.check_circle_outline,
-        RepoStateValue.archived => m.Icons.archive_outlined,
-        RepoStateValue.cloud => m.Icons.cloud_outlined,
-        _ => m.Icons.folder_outlined,
+        RepoStateValue.active => LucideIcons.circleCheck,
+        RepoStateValue.archived => LucideIcons.archive,
+        RepoStateValue.cloud => LucideIcons.cloud,
+        _ => LucideIcons.folder,
       };
 
   AlembicBadgeTone get _stateTone => switch (state) {
@@ -487,7 +495,7 @@ class _DetailHeader extends StatelessWidget {
       };
 
   Color _stateColor(ThemeData theme) => switch (state) {
-        RepoStateValue.active => theme.colorScheme.primary,
+        RepoStateValue.active => theme.colorScheme.ring,
         RepoStateValue.archived => theme.colorScheme.foreground,
         _ => theme.colorScheme.mutedForeground,
       };
@@ -543,19 +551,21 @@ class _DetailHeader extends StatelessWidget {
                       tone: _stateTone,
                     ),
                   if (repository.isPrivate)
-                    m.Tooltip(
-                      message: 'Private',
+                    Tooltip(
+                      tooltip: (_) =>
+                          const TooltipContainer(child: Text('Private')),
                       child: m.Icon(
-                        m.Icons.lock_outline,
+                        LucideIcons.lockKeyhole,
                         size: 14,
                         color: theme.colorScheme.mutedForeground,
                       ),
                     ),
                   if (repository.isFork)
-                    m.Tooltip(
-                      message: 'Fork',
+                    Tooltip(
+                      tooltip: (_) =>
+                          const TooltipContainer(child: Text('Fork')),
                       child: m.Icon(
-                        m.Icons.call_split,
+                        LucideIcons.gitFork,
                         size: 14,
                         color: theme.colorScheme.mutedForeground,
                       ),
@@ -577,7 +587,7 @@ class _DetailHeader extends StatelessWidget {
         AlembicToolbarButton(
           onPressed: onOpenGitHub,
           label: 'Open on GitHub',
-          leadingIcon: m.Icons.open_in_new,
+          leadingIcon: LucideIcons.externalLink,
           iconOnly: true,
           tooltip: 'Open on GitHub',
         ),
@@ -585,7 +595,7 @@ class _DetailHeader extends StatelessWidget {
         AlembicToolbarButton(
           onPressed: onClose,
           label: 'Close',
-          leadingIcon: m.Icons.close,
+          leadingIcon: LucideIcons.x,
           iconOnly: true,
           tooltip: 'Close',
         ),
@@ -724,7 +734,7 @@ class _ActionsCard extends StatelessWidget {
           ],
         ),
         const Gap(AlembicShadcnTokens.gapMd),
-        m.Divider(
+        Divider(
           height: 1,
           thickness: 1,
           color: theme.colorScheme.border,
@@ -778,8 +788,8 @@ class _WorkEntryRow extends StatelessWidget {
   });
 
   IconData get _icon => switch (entry.kind) {
-        RepositoryWorkKind.clone => m.Icons.download_outlined,
-        RepositoryWorkKind.generic => m.Icons.sync,
+        RepositoryWorkKind.clone => LucideIcons.download,
+        RepositoryWorkKind.generic => LucideIcons.refreshCw,
       };
 
   @override
@@ -1110,7 +1120,7 @@ class _PathRow extends StatelessWidget {
             ),
           ),
           const Gap(2),
-          m.SelectableText(
+          SelectableText(
             compressPath(path) ?? path,
             style: theme.typography.mono.copyWith(fontSize: 12),
           ),
@@ -1214,8 +1224,8 @@ class _StatusBanner extends StatelessWidget {
   });
 
   IconData get _icon => switch (tone) {
-        _BannerTone.success => m.Icons.check_circle_outline,
-        _BannerTone.error => m.Icons.error_outline,
+        _BannerTone.success => LucideIcons.circleCheck,
+        _BannerTone.error => LucideIcons.circleAlert,
       };
 
   Color _color(ThemeData theme) => switch (tone) {
@@ -1235,7 +1245,7 @@ class _StatusBanner extends StatelessWidget {
           m.Icon(_icon, size: 15, color: color),
           const Gap(AlembicShadcnTokens.gapSm),
           Expanded(
-            child: m.SelectableText(
+            child: SelectableText(
               message,
               style: theme.typography.xSmall.copyWith(color: color),
             ),
@@ -1274,7 +1284,7 @@ class _DetailLoadingState extends StatelessWidget {
                 ]
               : <Widget>[
                   m.Icon(
-                    m.Icons.error_outline,
+                    LucideIcons.circleAlert,
                     size: 22,
                     color: theme.colorScheme.destructive,
                   ),

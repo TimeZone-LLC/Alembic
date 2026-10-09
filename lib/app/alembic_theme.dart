@@ -21,13 +21,26 @@ Future<void> saveAlembicThemeMode(ThemeMode mode) {
 
 ArcaneTheme buildAlembicTheme() {
   return ArcaneTheme(
-    radius: 0.32,
+    radius: 0.4,
     surfaceEffect: const StaticSurfaceEffect(),
     backupSurfaceEffect: const StaticSurfaceEffect(),
     surfaceOpacity: 1,
     surfaceOpacityLight: 1,
     themeMode: loadAlembicThemeMode(),
     scheme: AlembicShadcnTokens.scheme,
-    materialThemeBuilder: AlembicShadcnTokens.buildMaterialTheme,
+    shadThemeBuilder: _buildComponentTheme,
   );
 }
+
+ThemeData _buildComponentTheme(ArcaneTheme theme, Brightness brightness) =>
+    ThemeData(
+      colorScheme: AlembicShadcnTokens.scheme.scheme(brightness),
+      radius: theme.radius,
+      scaling: theme.scaling,
+      surfaceOpacity: 1,
+      surfaceBlur: 0,
+      typography: const Typography.geist(
+        sans: TextStyle(fontFamily: 'PlusJakartaSans'),
+        mono: TextStyle(fontFamily: 'JetBrainsMono'),
+      ),
+    );

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:alembic/app/alembic_theme.dart';
+import 'package:alembic/app/alembic_dialogs.dart';
 import 'package:alembic/core/update_controller.dart';
 import 'package:alembic/core/update_status.dart';
 import 'package:alembic/main.dart';
@@ -9,7 +10,7 @@ import 'package:alembic/screen/settings/settings_rows.dart';
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:alembic/util/window.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
 import 'package:url_launcher/url_launcher.dart';
 
 class GeneralSettingsPane extends StatefulWidget {
@@ -39,10 +40,18 @@ class _GeneralSettingsPaneState extends State<GeneralSettingsPane> {
       boxSettings.get('start_hidden', defaultValue: true) == true;
 
   Future<void> _setLaunchAtStartup(bool value) async {
-    await boxSettings.put('autolaunch', value);
-    await applyLaunchAtStartupPreference(value);
-    if (mounted) {
-      setState(() {});
+    final bool applied = await applyLaunchAtStartupPreference(value);
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
+    if (!applied) {
+      await showAlembicInfoDialog(
+        context,
+        title: 'Startup setting could not be changed',
+        message: 'The operating system did not accept this change. '
+            'Check your login item permissions and try again.',
+      );
     }
   }
 
@@ -173,7 +182,7 @@ class _PairedToggleRow extends StatelessWidget {
               padding: const EdgeInsets.symmetric(
                 vertical: _stackedDividerPadding,
               ),
-              child: m.Divider(
+              child: Divider(
                 height: 1,
                 thickness: 1,
                 color: theme.colorScheme.border,
@@ -217,11 +226,11 @@ class _UpdatesStatusContent extends StatelessWidget {
   IconData _iconFor() => switch (snapshot.status) {
         UpdateStatus.updateAvailable ||
         UpdateStatus.downloading =>
-          m.Icons.circle,
-        UpdateStatus.checking => m.Icons.sync,
-        UpdateStatus.error => m.Icons.warning_amber_rounded,
-        UpdateStatus.upToDate => m.Icons.check_circle_outline,
-        UpdateStatus.idle => m.Icons.info_outline,
+          LucideIcons.circle,
+        UpdateStatus.checking => LucideIcons.refreshCw,
+        UpdateStatus.error => LucideIcons.triangleAlert,
+        UpdateStatus.upToDate => LucideIcons.circleCheck,
+        UpdateStatus.idle => LucideIcons.info,
       };
 
   m.Color _iconColorFor(ThemeData theme) => switch (snapshot.status) {
@@ -274,7 +283,7 @@ class _UpdatesStatusContent extends StatelessWidget {
             const Gap(AlembicShadcnTokens.gapSm),
             AlembicToolbarButton(
               label: 'Release page',
-              trailingIcon: m.Icons.open_in_new,
+              trailingIcon: LucideIcons.externalLink,
               compact: true,
               onPressed: () =>
                   unawaited(launchUrl(Uri.parse(snapshot.releaseUrl))),

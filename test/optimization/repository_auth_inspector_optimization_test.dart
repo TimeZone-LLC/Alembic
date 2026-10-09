@@ -111,6 +111,7 @@ class _AuthConfigRunner {
     BehaviorSubject<String>? stdout,
     BehaviorSubject<String>? stderr,
     String? workingDirectory,
+    Map<String, String>? environment,
     bool redactOutput = true,
   }) async {
     String key = args.last;

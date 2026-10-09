@@ -4,7 +4,7 @@ import 'package:alembic/util/extensions.dart';
 import 'package:alembic/util/git_signing.dart';
 import 'package:alembic/util/repo_config.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
 
 class ToolsSettingsPane extends StatefulWidget {
   final CloneTransportMode cloneTransportMode;
@@ -150,7 +150,7 @@ ssh -T git@github.com''';
             ),
             border: Border.all(color: theme.colorScheme.border),
           ),
-          child: m.SelectableText(
+          child: SelectableText(
             _commands,
             style: theme.typography.xSmall.copyWith(
               fontFamily: 'monospace',

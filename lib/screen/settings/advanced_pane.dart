@@ -1,3 +1,4 @@
+import 'package:alembic/app/alembic_dialogs.dart';
 import 'dart:async';
 import 'dart:io' show pid;
 
@@ -12,7 +13,7 @@ import 'package:alembic/ui/alembic_ui.dart';
 import 'package:alembic/util/git_accounts.dart';
 import 'package:alembic/util/window.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
 
 class AdvancedSettingsPane extends StatelessWidget {
   const AdvancedSettingsPane({super.key});
@@ -27,7 +28,7 @@ class AdvancedSettingsPane extends StatelessWidget {
 
   void _openDiagnosticsConsole(BuildContext context) {
     Navigator.of(context, rootNavigator: true).push(
-      m.MaterialPageRoute<void>(
+      alembicPageRoute<void>(
         builder: (_) => const DiagnosticsConsoleScreen(),
       ),
     );
@@ -204,7 +205,7 @@ class _DiagnosticsPathList extends StatelessWidget {
             ),
             border: Border.all(color: theme.colorScheme.border),
           ),
-          child: m.SelectableText(
+          child: SelectableText(
             paths.join('\n'),
             style: theme.typography.xSmall.copyWith(
               fontFamily: 'monospace',

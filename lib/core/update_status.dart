@@ -25,7 +25,7 @@ enum UpdateStatus {
 /// isolation. UpdateController owns the current instance.
 class UpdateSnapshot {
   static const String defaultReleaseUrl =
-      'https://github.com/ArcaneArts/alembic/releases/latest';
+      'https://github.com/TimeZone-LLC/Alembic/releases/latest';
 
   final UpdateStatus status;
   final bool autoCheckEnabled;

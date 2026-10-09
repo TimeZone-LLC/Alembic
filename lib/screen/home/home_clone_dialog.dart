@@ -4,7 +4,9 @@ import 'package:alembic/screen/home/home_view_filters.dart';
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:alembic/util/repository_catalog.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:arcane/generated/arcane_shadcn/shadcn_flutter.dart'
+    show showDialog;
+import 'package:flutter/widgets.dart' as m;
 import 'package:github/github.dart';
 
 Future<void> showHomeCloneDialog(
@@ -14,7 +16,7 @@ Future<void> showHomeCloneDialog(
   required Future<void> Function() onReload,
   required ValueChanged<HomeStateFilter> onStateFilterSelected,
 }) =>
-    m.showDialog<void>(
+    showDialog<void>(
       context: context,
       builder: (BuildContext dialogContext) => HomeCloneDialog(
         controller: controller,
@@ -68,7 +70,12 @@ class _HomeCloneDialogState extends State<HomeCloneDialog> {
       _busy = true;
       _error = null;
     });
-    String? failure = await _clone(raw);
+    String? failure;
+    try {
+      failure = await _clone(raw);
+    } catch (error) {
+      failure = 'Clone failed: $error';
+    }
     if (!mounted) {
       return;
     }
@@ -94,12 +101,10 @@ class _HomeCloneDialogState extends State<HomeCloneDialog> {
   }
 
   Future<String?> _cloneRef(RepositoryRef ref) async {
-    await addManualRepoRef(ref);
     Repository? resolved = await widget.controller.resolveRepositoryRef(ref) ??
         widget.controller.localFallbackRepository(ref);
     if (resolved == null) {
-      await widget.onReload();
-      return null;
+      return 'Could not access ${ref.fullName}. Check the repository name and account permissions.';
     }
     try {
       await widget.controller.repositoryFor(resolved).ensureRepositoryActive(
@@ -109,6 +114,7 @@ class _HomeCloneDialogState extends State<HomeCloneDialog> {
       await widget.onReload();
       return 'Clone failed: $e';
     }
+    await addManualRepoRef(ref);
     await widget.onReload();
     widget.onStateFilterSelected(HomeStateFilter.active);
     return null;
@@ -135,8 +141,7 @@ class _HomeCloneDialogState extends State<HomeCloneDialog> {
   @override
   Widget build(BuildContext context) => AlembicDialogCard(
         title: 'Clone Repository',
-        description:
-            'Paste a GitHub URL, owner/repo, or any git clone URL.',
+        description: 'Paste a GitHub URL, owner/repo, or any git clone URL.',
         actions: <Widget>[
           AlembicToolbarButton(
             label: 'Cancel',

@@ -32,7 +32,6 @@ class HomeController {
       BehaviorSubject<double?>.seeded(null);
   final BehaviorSubject<String?> progressLabel =
       BehaviorSubject<String?>.seeded(null);
-  final Map<String, String> _accountByFullName = <String, String>{};
 
   Timer? _staleCheckTimer;
   Timer? _backgroundRefreshTimer;
@@ -99,14 +98,8 @@ class HomeController {
   }
 
   String? accountIdForRepository(Repository repository) {
-    String key = repository.fullName.toLowerCase();
-    String? cached = _accountByFullName[key];
-    if (cached != null && cached.isNotEmpty) {
-      return cached;
-    }
     String? configId = getRepoConfig(repository).accountId;
     if (configId != null && configId.isNotEmpty) {
-      _accountByFullName[key] = configId;
       return configId;
     }
     return registry.primaryAccountId;
@@ -171,7 +164,7 @@ class HomeController {
     _backgroundRefreshRunning = true;
     try {
       await store.refresh();
-      await updateAllRepositoryTokens(quiet: true);
+      await scrubRepositoryRemoteCredentials(quiet: true);
     } catch (e) {
       error('Background repository refresh failed: $e');
     } finally {
@@ -179,12 +172,11 @@ class HomeController {
     }
   }
 
-  Future<int> updateAllRepositoryTokens({bool quiet = false}) async {
-    if (registry.accounts.isEmpty) {
-      return 0;
-    }
+  /// Strips credentials that earlier Alembic versions embedded in
+  /// `remote.origin.url`. Returns the number of checkouts rewritten.
+  Future<int> scrubRepositoryRemoteCredentials({bool quiet = false}) async {
     if (!quiet) {
-      _setProgressLabel('Checking repository tokens');
+      _setProgressLabel('Checking repository remotes');
       _setProgress(0.0);
     }
     List<Repository> repositories = store.cachedRepositories;
@@ -193,15 +185,9 @@ class HomeController {
     int updated = 0;
     for (Repository repo in repositories) {
       ArcaneRepository repository = repositoryFor(repo);
-      if (await repository.isActive) {
-        String latestToken = repository.resolvedToken;
-        if (latestToken.isNotEmpty) {
-          bool wasUpdated = await repository.checkAndUpdateToken(latestToken);
-          if (wasUpdated) {
-            updated++;
-            success('Updated token for ${repo.fullName}');
-          }
-        }
+      if (await repository.scrubRemoteCredentials()) {
+        updated++;
+        success('Removed embedded credentials from ${repo.fullName}');
       }
       current++;
       if (!quiet) {
@@ -264,8 +250,7 @@ class HomeController {
   }
 
   Repository? localFallbackRepository(RepositoryRef ref) {
-    String path =
-        expandPath('${config.workspaceDirectory}/${ref.owner}/${ref.name}');
+    String path = repositoryWorkspacePath(ref.fullName);
     if (!Directory('$path/.git').existsSync()) {
       return null;
     }

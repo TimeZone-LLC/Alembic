@@ -1,9 +1,10 @@
+import 'package:alembic/app/alembic_dialogs.dart';
 import 'package:alembic/core/token_validator.dart';
 import 'package:alembic/screen/splash.dart';
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:alembic/util/git_accounts.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
@@ -109,7 +110,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     Navigator.of(context).pushAndRemoveUntil(
-      m.MaterialPageRoute<void>(builder: (_) => const SplashScreen()),
+      alembicPageRoute<void>(builder: (_) => const SplashScreen()),
       (_) => false,
     );
   }
@@ -118,23 +119,45 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) => AlembicScaffold(
-        child: m.SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const _LoginMarketingPanel(),
-              const Gap(AlembicShadcnTokens.gapLg),
-              _LoginSignInPanel(
-                tokenController: _tokenController,
-                nameController: _nameController,
-                isTokenValid: _isTokenValid,
-                isSubmitting: _isSubmitting,
-                validationMessage: _validationMessage,
-                onSubmitToken: _doLogin,
-                onGenerateToken: _openTokenCreationPage,
+        child: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            final Widget signIn = _LoginSignInPanel(
+              tokenController: _tokenController,
+              nameController: _nameController,
+              isTokenValid: _isTokenValid,
+              isSubmitting: _isSubmitting,
+              validationMessage: _validationMessage,
+              onSubmitToken: _doLogin,
+              onGenerateToken: _openTokenCreationPage,
+            );
+            return Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 960),
+                child: m.SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: constraints.maxWidth >= 820
+                        ? Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: <Widget>[
+                              const Expanded(child: _LoginMarketingPanel()),
+                              const Gap(48),
+                              Expanded(child: signIn),
+                            ],
+                          )
+                        : Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              const _LoginMarketingPanel(),
+                              const Gap(28),
+                              signIn,
+                            ],
+                          ),
+                  ),
+                ),
               ),
-            ],
-          ),
+            );
+          },
         ),
       );
 }
@@ -145,9 +168,8 @@ class _LoginMarketingPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     ThemeData theme = Theme.of(context);
-    return AlembicPanel(
-      padding: AlembicShadcnTokens.shellPadding,
-      tone: AlembicSurfaceTone.elevated,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -184,7 +206,7 @@ class _LoginMarketingPanel extends StatelessWidget {
               const Gap(AlembicShadcnTokens.gapLg),
               Expanded(
                 child: Text(
-                  'Welcome to Alembic',
+                  'Your repositories.\nOne workspace.',
                   style: theme.typography.x2Large.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
@@ -194,7 +216,7 @@ class _LoginMarketingPanel extends StatelessWidget {
           ),
           const Gap(AlembicShadcnTokens.gapLg),
           Text(
-            'Alembic manages active clones, archives idle repositories, and keeps your tooling one click away.',
+            'Clone, open, and archive your projects from a single workspace. Connect GitHub to get started.',
             style: theme.typography.small.copyWith(
               color: theme.colorScheme.mutedForeground,
             ),
@@ -266,7 +288,7 @@ class _LoginSignInPanel extends StatelessWidget {
                 controller: tokenController,
                 placeholder: 'ghp_... or github_pat_...',
                 obscureText: true,
-                leading: const m.Icon(m.Icons.vpn_key, size: 16),
+                leading: const m.Icon(LucideIcons.keyRound, size: 16),
                 onSubmitted: _canSubmit ? onSubmitToken : null,
               ),
             ),
@@ -322,7 +344,7 @@ class _LoginSignInPanel extends StatelessWidget {
                 onPressed: isSubmitting ? null : () => onGenerateToken(),
                 label: 'Generate new token',
                 quiet: true,
-                leadingIcon: m.Icons.open_in_new,
+                leadingIcon: LucideIcons.externalLink,
               ),
               const Spacer(),
               AlembicToolbarButton(

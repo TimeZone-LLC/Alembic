@@ -1,5 +1,5 @@
+import 'package:arcane/arcane.dart' show LucideIcons;
 import 'package:alembic/core/arcane_repository.dart';
-import 'package:flutter/material.dart' as m;
 import 'package:flutter/widgets.dart';
 
 enum HomeBulkAction {
@@ -51,8 +51,8 @@ extension RepoStateMeta on RepoState {
       };
 
   IconData get primaryActionIcon => switch (this) {
-        RepoState.active => m.Icons.folder_open,
-        RepoState.archived => m.Icons.unarchive_outlined,
-        RepoState.cloud => m.Icons.add_link,
+        RepoState.active => LucideIcons.folderOpen,
+        RepoState.archived => LucideIcons.archiveRestore,
+        RepoState.cloud => LucideIcons.link,
       };
 }

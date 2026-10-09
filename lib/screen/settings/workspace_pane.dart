@@ -8,7 +8,7 @@ import 'package:alembic/ui/alembic_ui.dart';
 import 'package:alembic/util/archive_master.dart';
 import 'package:alembic/util/repo_config.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
 
 typedef SelectDirectoryCallback = Future<void> Function({
   required String initialDirectory,
@@ -252,8 +252,7 @@ class _WorkspaceSettingsPaneState extends State<WorkspaceSettingsPane> {
           ),
           AlembicSettingsActionRow(
             title: 'Refresh now',
-            description:
-                'Clone and pull every tracked repository immediately.',
+            description: 'Clone and pull every tracked repository immediately.',
             value: '',
             actionLabel: _refreshing ? 'Refreshing...' : 'Refresh',
             onPressed: _refreshing ? null : () => unawaited(_refreshNow()),

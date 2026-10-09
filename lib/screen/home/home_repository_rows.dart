@@ -11,7 +11,8 @@ import 'package:alembic/util/archive_master.dart';
 import 'package:alembic/util/git_accounts.dart';
 import 'package:alembic/widget/repository_tile_actions.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
+import 'package:flutter/gestures.dart' show PointerDeviceKind, PointerDownEvent;
 
 typedef HomeEntryCallback = Future<void> Function(HomeRepositoryEntry entry);
 typedef HomeEntryActionCallback = Future<void> Function(
@@ -152,6 +153,8 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
   late Future<RepoAuthInfo> _authInfo;
   late bool _hasMasterClone;
   bool _hovered = false;
+  bool _focused = false;
+  bool _touchControls = false;
   bool _selected = false;
   bool _selectionActive = false;
 
@@ -281,7 +284,7 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
         ),
       if (masterModels.isNotEmpty)
         MenuButton(
-          leading: const Icon(m.Icons.cloud_sync_outlined, size: 14),
+          leading: const Icon(LucideIcons.cloudDownload, size: 14),
           subMenu: <MenuItem>[
             for (RepositoryActionModel model in masterModels)
               MenuButton(
@@ -309,52 +312,50 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
     ThemeData theme = Theme.of(context);
     List<RepositoryActionModel> models = _menuModels;
     bool selectable = widget.selection != null;
-    return ContextMenu(
-      items: _contextMenuItems(models),
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: StreamBuilder<List<RepositoryWork>>(
-          stream: _workStream,
-          initialData: const <RepositoryWork>[],
-          builder: (context, workSnapshot) {
-            List<RepositoryWork> work =
-                workSnapshot.data ?? const <RepositoryWork>[];
-            RepositoryWork? activeWork = _primaryWork(work);
-            bool busy = work.isNotEmpty;
-            bool selectionVisible =
-                selectable && (_hovered || _selectionActive);
-            String? description =
-                widget.entry.dto.description.cleanedDescription;
-            return Container(
-              constraints: const BoxConstraints(minHeight: 40),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-              alignment: Alignment.centerLeft,
-              decoration: BoxDecoration(
-                color: _hovered
-                    ? m.Color.alphaBlend(
-                        theme.colorScheme.secondary.withValues(alpha: 0.5),
-                        theme.colorScheme.background,
-                      )
-                    : theme.colorScheme.background,
-                border: widget.showSeparator
-                    ? Border(
-                        bottom: BorderSide(color: theme.colorScheme.border),
-                      )
-                    : null,
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: <Widget>[
-                  if (selectable)
-                    _RowSelectionSlot(
-                      visible: selectionVisible,
-                      selected: _selected,
-                      fullName: widget.entry.fullName,
-                      onPressed: _toggleSelection,
-                    ),
-                  Expanded(
-                    child: GestureDetector(
+    final bool reveal = _hovered ||
+        _focused ||
+        _touchControls ||
+        MediaQuery.accessibleNavigationOf(context);
+    return Focus(
+      canRequestFocus: false,
+      onFocusChange: (bool focused) => setState(() => _focused = focused),
+      child: Listener(
+        onPointerDown: (PointerDownEvent event) {
+          if (event.kind == PointerDeviceKind.touch ||
+              event.kind == PointerDeviceKind.stylus) {
+            setState(() => _touchControls = true);
+          }
+        },
+        child: ContextMenu(
+          items: _contextMenuItems(models),
+          child: MouseRegion(
+            onEnter: (_) => setState(() => _hovered = true),
+            onExit: (_) => setState(() => _hovered = false),
+            child: StreamBuilder<List<RepositoryWork>>(
+              stream: _workStream,
+              initialData: const <RepositoryWork>[],
+              builder: (context, workSnapshot) {
+                List<RepositoryWork> work =
+                    workSnapshot.data ?? const <RepositoryWork>[];
+                RepositoryWork? activeWork = _primaryWork(work);
+                bool busy = work.isNotEmpty;
+                String? description =
+                    widget.entry.dto.description.cleanedDescription;
+                return LayoutBuilder(
+                  builder: (BuildContext context, BoxConstraints constraints) {
+                    final bool compact = constraints.maxWidth < 460;
+                    final bool narrow = constraints.maxWidth < 720;
+                    final Widget actions = _RowTrailing(
+                      work: activeWork,
+                      controlsVisible: !busy && (reveal || _selected),
+                      state: widget.entry.repoState,
+                      options: HomeRepositoryMenu.dropdownOptions(models),
+                      onPrimaryPressed: () =>
+                          widget.onPrimaryAction(widget.entry),
+                      onActionSelected: (RepositoryTileAction action) =>
+                          widget.onAction(widget.entry, action),
+                    );
+                    final Widget identity = GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onDoubleTap: () => widget.onShowDetails(widget.entry),
                       child: Column(
@@ -370,35 +371,96 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
                             onAuthPressed: _onAuthWarningPressed,
                           ),
                           if (description != null) ...<Widget>[
-                            const Gap(2),
+                            const Gap(5),
                             Text(
                               description,
-                              maxLines: 1,
+                              maxLines: narrow ? 2 : 1,
                               overflow: TextOverflow.ellipsis,
                               style: theme.typography.xSmall.copyWith(
+                                fontSize: 12,
                                 color: theme.colorScheme.mutedForeground,
+                                height: 1.4,
                               ),
                             ),
                           ],
                         ],
                       ),
-                    ),
-                  ),
-                  const Gap(AlembicShadcnTokens.gapSm),
-                  _RowTrailing(
-                    work: activeWork,
-                    controlsVisible: !busy && (_hovered || _selectionActive),
-                    state: widget.entry.repoState,
-                    options: HomeRepositoryMenu.dropdownOptions(models),
-                    onPrimaryPressed: () =>
-                        widget.onPrimaryAction(widget.entry),
-                    onActionSelected: (action) =>
-                        widget.onAction(widget.entry, action),
-                  ),
-                ],
-              ),
-            );
-          },
+                    );
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Container(
+                          constraints: const BoxConstraints(minHeight: 80),
+                          margin: const EdgeInsets.symmetric(vertical: 3),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: compact ? 8 : 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: _selected
+                                ? m.Color.alphaBlend(
+                                    theme.colorScheme.primary
+                                        .withValues(alpha: 0.13),
+                                    theme.colorScheme.background,
+                                  )
+                                : _hovered
+                                    ? theme.colorScheme.muted
+                                        .withValues(alpha: 0.45)
+                                    : widget.entry.repoState == RepoState.active
+                                        ? AlembicShadcnTokens.success(theme)
+                                            .withValues(alpha: 0.05)
+                                        : null,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: _selected
+                                  ? theme.colorScheme.ring
+                                  : const m.Color(0x00000000),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: <Widget>[
+                                  if (selectable)
+                                    _RowSelectionSlot(
+                                      visible: reveal || _selectionActive,
+                                      selected: _selected,
+                                      state: widget.entry.repoState,
+                                      fullName: widget.entry.fullName,
+                                      onPressed: _toggleSelection,
+                                      compact: compact,
+                                    ),
+                                  Expanded(child: identity),
+                                  if (!compact) ...<Widget>[
+                                    const Gap(20),
+                                    actions,
+                                  ],
+                                ],
+                              ),
+                              if (compact) ...<Widget>[
+                                const Gap(10),
+                                Align(
+                                    alignment: Alignment.centerRight,
+                                    child: actions),
+                              ],
+                            ],
+                          ),
+                        ),
+                        if (widget.showSeparator)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Divider(
+                                color: theme.colorScheme.border
+                                    .withValues(alpha: 0.55)),
+                          ),
+                      ],
+                    );
+                  },
+                );
+              },
+            ),
+          ),
         ),
       ),
     );
@@ -408,83 +470,52 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
 class _RowSelectionSlot extends StatelessWidget {
   final bool visible;
   final bool selected;
+  final RepoState state;
   final String fullName;
   final VoidCallback onPressed;
+  final bool compact;
 
   const _RowSelectionSlot({
     required this.visible,
     required this.selected,
+    required this.state,
     required this.fullName,
     required this.onPressed,
+    required this.compact,
   });
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        width: 24,
-        child: visible
-            ? Align(
-                alignment: Alignment.centerLeft,
-                child: _RowCheckbox(
+        width: compact ? 42 : 38,
+        child: Stack(
+          alignment: Alignment.centerLeft,
+          children: <Widget>[
+            if (!visible)
+              SizedBox.square(
+                dimension: compact ? 40 : 32,
+                child: Icon(state.availabilityIcon,
+                    size: 18,
+                    color: state.availabilityColor(Theme.of(context))),
+              ),
+            IgnorePointer(
+              ignoring: !visible,
+              child: Opacity(
+                opacity: visible ? 1 : 0,
+                alwaysIncludeSemantics: true,
+                child: AlembicSelectionToggle(
                   selected: selected,
                   label: selected ? 'Deselect $fullName' : 'Select $fullName',
-                  onPressed: onPressed,
+                  size: compact ? 40 : 32,
+                  onChanged: (_) => onPressed(),
                 ),
-              )
-            : null,
+              ),
+            ),
+          ],
+        ),
       );
 }
 
-class _RowCheckbox extends StatelessWidget {
-  final bool selected;
-  final String label;
-  final VoidCallback onPressed;
-
-  const _RowCheckbox({
-    required this.selected,
-    required this.label,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
-    return m.Tooltip(
-      message: label,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onPressed,
-          child: Container(
-            width: 16,
-            height: 16,
-            decoration: BoxDecoration(
-              color:
-                  selected ? theme.colorScheme.primary : theme.colorScheme.card,
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(
-                color: selected
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.input,
-              ),
-            ),
-            child: selected
-                ? m.Icon(
-                    m.Icons.check,
-                    size: 12,
-                    color: theme.colorScheme.primaryForeground,
-                  )
-                : null,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _RowTitleLine extends StatelessWidget {
-  static const m.Color urgentColor = m.Color(0xFFE8930C);
-
   final HomeRepositoryEntry entry;
   final GitAccount? account;
   final bool enrolled;
@@ -524,86 +555,86 @@ class _RowTitleLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     ThemeData theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Flexible(
-          child: Text.rich(
-            TextSpan(
-              children: <InlineSpan>[
-                TextSpan(
-                  text: '${entry.dto.owner}/',
-                  style: theme.typography.xSmall.copyWith(
-                    color: theme.colorScheme.mutedForeground,
-                  ),
+        Row(children: <Widget>[
+          Flexible(
+            child: Text(
+              entry.dto.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.typography.small.copyWith(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.15,
+              ),
+            ),
+          ),
+          if (entry.dto.isPrivate) ...<Widget>[
+            const Gap(6),
+            Tooltip(
+              tooltip: (_) =>
+                  const TooltipContainer(child: Text('Private repository')),
+              child: m.Icon(
+                LucideIcons.lockKeyhole,
+                size: 11,
+                color: theme.colorScheme.mutedForeground,
+              ),
+            ),
+          ],
+          _RowAuthWarning(authInfo: authInfo, onPressed: onAuthPressed),
+        ]),
+        const Gap(AlembicShadcnTokens.gapXs),
+        Wrap(
+            spacing: AlembicShadcnTokens.gapSm,
+            runSpacing: AlembicShadcnTokens.gapXs,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: <Widget>[
+              _RowStateMark(state: entry.repoState, syncing: entry.syncing),
+              Text(
+                entry.dto.owner,
+                style: theme.typography.xSmall.copyWith(
+                  fontSize: 12,
+                  color: theme.colorScheme.mutedForeground,
                 ),
-                TextSpan(
-                  text: entry.dto.name,
-                  style: theme.typography.small.copyWith(
+              ),
+              if (_showCountdown) ...<Widget>[
+                Text(
+                  _countdownLabel,
+                  style: theme.typography.xSmall.copyWith(
+                    fontSize: 12,
+                    color: entry.daysUntilArchive <= 3
+                        ? AlembicShadcnTokens.warning(theme)
+                        : theme.colorScheme.mutedForeground,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        if (entry.dto.isPrivate) ...<Widget>[
-          const Gap(6),
-          m.Tooltip(
-            message: 'Private repository',
-            child: m.Icon(
-              m.Icons.lock_outline,
-              size: 11,
-              color: theme.colorScheme.mutedForeground,
-            ),
-          ),
-        ],
-        const Gap(AlembicShadcnTokens.gapSm),
-        _RowStateMark(state: entry.repoState, syncing: entry.syncing),
-        if (_showCountdown) ...<Widget>[
-          const Gap(AlembicShadcnTokens.gapSm),
-          Text(
-            _countdownLabel,
-            style: theme.typography.xSmall.copyWith(
-              color: entry.daysUntilArchive <= 3
-                  ? urgentColor
-                  : theme.colorScheme.mutedForeground,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-        if (entry.dto.isArchived) ...<Widget>[
-          const Gap(AlembicShadcnTokens.gapSm),
-          const _MicroBadge(label: 'GH ARCHIVED'),
-        ],
-        if (_showAccountChip) ...<Widget>[
-          const Gap(AlembicShadcnTokens.gapSm),
-          _MicroBadge(label: account?.name ?? ''),
-        ],
-        if (enrolled) ...<Widget>[
-          const Gap(AlembicShadcnTokens.gapSm),
-          m.Tooltip(
-            message: 'Archive Master',
-            child: m.Icon(
-              m.Icons.cloud_sync_outlined,
-              size: 11,
-              color: theme.colorScheme.mutedForeground,
-            ),
-          ),
-        ],
-        _RowAuthWarning(authInfo: authInfo, onPressed: onAuthPressed),
+              if (entry.dto.isArchived) ...<Widget>[
+                const _MicroBadge(label: 'GitHub archived'),
+              ],
+              if (_showAccountChip) ...<Widget>[
+                _MicroBadge(label: account?.name ?? ''),
+              ],
+              if (enrolled) ...<Widget>[
+                Tooltip(
+                  tooltip: (_) =>
+                      const TooltipContainer(child: Text('Archive Master')),
+                  child: m.Icon(
+                    LucideIcons.cloudDownload,
+                    size: 11,
+                    color: theme.colorScheme.mutedForeground,
+                  ),
+                ),
+              ],
+            ]),
       ],
     );
   }
 }
 
 class _RowStateMark extends StatelessWidget {
-  static const m.Color localColor = m.Color(0xFF16A34A);
-  static const m.Color archivedColor = m.Color(0xFF2563EB);
-  static const m.Color syncingColor = m.Color(0xFFE8930C);
-
   final RepoState state;
   final bool syncing;
 
@@ -612,45 +643,59 @@ class _RowStateMark extends StatelessWidget {
     required this.syncing,
   });
 
-  String get _word => syncing
-      ? 'Syncing'
-      : switch (state) {
-          RepoState.active => 'Local',
-          RepoState.archived => 'Archived',
-          RepoState.cloud => 'Cloud',
-        };
+  String get _word => switch (state) {
+        RepoState.active => 'Local',
+        RepoState.archived => 'Archived',
+        RepoState.cloud => 'Not cloned',
+      };
 
-  m.Color _dotColor(ThemeData theme) => syncing
-      ? syncingColor
-      : switch (state) {
-          RepoState.active => localColor,
-          RepoState.archived => archivedColor,
-          RepoState.cloud => theme.colorScheme.mutedForeground,
-        };
+  String get _description => switch (state) {
+        RepoState.active => 'Working copy on this device. Ready to open.',
+        RepoState.archived =>
+          'Archive saved on this device. Activate to restore the working copy.',
+        RepoState.cloud =>
+          'No local working copy or archive. Clone to use on this device.',
+      };
 
   @override
   Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: <Widget>[
-        Container(
-          width: 6,
-          height: 6,
+    final ThemeData theme = Theme.of(context);
+    final Color foreground = state.availabilityColor(theme);
+    return Tooltip(
+      tooltip: (_) => TooltipContainer(
+        child: Text('$_description${syncing ? ' Syncing in progress.' : ''}'),
+      ),
+      child: Semantics(
+        label: syncing ? '$_word, syncing' : _word,
+        excludeSemantics: true,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           decoration: BoxDecoration(
-            color: _dotColor(theme),
-            shape: BoxShape.circle,
+            color: state == RepoState.cloud
+                ? null
+                : foreground.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: foreground.withValues(alpha: 0.35)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(state.availabilityIcon, size: 12, color: foreground),
+              const Gap(5),
+              Text(_word,
+                  style: theme.typography.xSmall.copyWith(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: foreground,
+                  )),
+              if (syncing) ...<Widget>[
+                const Gap(5),
+                Icon(LucideIcons.refreshCw, size: 11, color: foreground),
+              ],
+            ],
           ),
         ),
-        const Gap(4),
-        Text(
-          _word,
-          style: theme.typography.xSmall.copyWith(
-            color: theme.colorScheme.mutedForeground,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -674,7 +719,7 @@ class _MicroBadge extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: theme.typography.xSmall.copyWith(
-          fontSize: 9,
+          fontSize: 11,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.3,
           color: theme.colorScheme.mutedForeground,
@@ -701,24 +746,17 @@ class _RowAuthWarning extends StatelessWidget {
           if (info == null || !info.tokenMismatch) {
             return const SizedBox.shrink();
           }
-          ThemeData theme = Theme.of(context);
           return Padding(
             padding: const EdgeInsets.only(left: AlembicShadcnTokens.gapSm),
-            child: m.Tooltip(
-              message:
-                  'Token does not match any saved account. Click to change.',
-              child: MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: onPressed,
-                  child: m.Icon(
-                    m.Icons.vpn_key_outlined,
-                    size: 12,
-                    color: theme.colorScheme.destructive,
-                  ),
-                ),
-              ),
+            child: AlembicToolbarButton(
+              label: 'Change authentication',
+              leadingIcon: LucideIcons.keyRound,
+              tooltip:
+                  'Token does not match any saved account. Change authentication.',
+              iconOnly: true,
+              compact: true,
+              quiet: true,
+              onPressed: onPressed,
             ),
           );
         },
@@ -726,7 +764,7 @@ class _RowAuthWarning extends StatelessWidget {
 }
 
 class _RowTrailing extends StatelessWidget {
-  static const double reservedWidth = 164;
+  static const double reservedWidth = 168;
 
   final RepositoryWork? work;
   final bool controlsVisible;
@@ -790,201 +828,32 @@ class _RowTrailing extends StatelessWidget {
         ignoring: !controlsVisible,
         child: Opacity(
           opacity: controlsVisible ? 1 : 0,
+          alwaysIncludeSemantics: true,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.end,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
-              _RowActionButton(
-                label: state.primaryActionLabel,
-                icon: state.primaryActionIcon,
-                onPressed: onPrimaryPressed,
+              Flexible(
+                child: AlembicToolbarButton(
+                  label: state.primaryActionLabel,
+                  leadingIcon: state.primaryActionIcon,
+                  compact: true,
+                  quiet: true,
+                  onPressed: onPrimaryPressed,
+                ),
               ),
               const Gap(6),
-              _RowOverflowButton(
-                options: options,
+              AlembicDropdownMenu<RepositoryTileAction>(
+                label: 'Repository options',
+                items: options,
+                leadingIcon: LucideIcons.ellipsis,
+                compact: true,
+                iconOnly: true,
                 onSelected: onActionSelected,
               ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _RowActionButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  const _RowActionButton({
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
-    return m.Material(
-      color: m.Colors.transparent,
-      child: m.InkWell(
-        onTap: onPressed,
-        canRequestFocus: false,
-        borderRadius: BorderRadius.circular(AlembicShadcnTokens.controlRadius),
-        child: Container(
-          height: 26,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: theme.colorScheme.card,
-            borderRadius:
-                BorderRadius.circular(AlembicShadcnTokens.controlRadius),
-            border: Border.all(color: theme.colorScheme.border),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: <Widget>[
-              m.Icon(icon, size: 12, color: theme.colorScheme.foreground),
-              const Gap(4),
-              Text(
-                label,
-                style: theme.typography.xSmall.copyWith(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.foreground,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RowOverflowButton extends StatelessWidget {
-  final List<AlembicDropdownOption<RepositoryTileAction>> options;
-  final ValueChanged<RepositoryTileAction> onSelected;
-
-  const _RowOverflowButton({
-    required this.options,
-    required this.onSelected,
-  });
-
-  Future<void> _showOptions(BuildContext context) async {
-    ThemeData theme = Theme.of(context);
-    RenderBox anchor = context.findRenderObject()! as RenderBox;
-    RenderBox overlay =
-        Navigator.of(context).overlay!.context.findRenderObject()! as RenderBox;
-    Offset topLeft = anchor.localToGlobal(Offset.zero, ancestor: overlay);
-    RelativeRect position = RelativeRect.fromRect(
-      Rect.fromLTWH(
-        topLeft.dx,
-        topLeft.dy + anchor.size.height + AlembicShadcnTokens.gapXs,
-        anchor.size.width,
-        1,
-      ),
-      Offset.zero & overlay.size,
-    );
-    RepositoryTileAction? selected = await m.showMenu<RepositoryTileAction>(
-      context: context,
-      position: position,
-      color: theme.colorScheme.popover,
-      surfaceTintColor: m.Colors.transparent,
-      elevation: 0,
-      constraints: const BoxConstraints(
-        minWidth: 176,
-        maxWidth: 300,
-        maxHeight: AlembicShadcnTokens.dropdownMenuMaxHeight,
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AlembicShadcnTokens.controlRadius),
-        side: BorderSide(color: theme.colorScheme.border),
-      ),
-      items: <m.PopupMenuEntry<RepositoryTileAction>>[
-        for (AlembicDropdownOption<RepositoryTileAction> option in options)
-          m.PopupMenuItem<RepositoryTileAction>(
-            value: option.value,
-            padding: EdgeInsets.zero,
-            height: 30,
-            child: _RowOverflowItem(option: option),
-          ),
-      ],
-    );
-    if (selected != null && context.mounted) {
-      onSelected(selected);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
-    return m.Tooltip(
-      message: 'Repository options',
-      child: m.Material(
-        color: m.Colors.transparent,
-        child: Builder(
-          builder: (context) => m.InkWell(
-            onTap: () => _showOptions(context),
-            canRequestFocus: false,
-            borderRadius:
-                BorderRadius.circular(AlembicShadcnTokens.controlRadius),
-            child: Container(
-              width: 26,
-              height: 26,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.card,
-                borderRadius:
-                    BorderRadius.circular(AlembicShadcnTokens.controlRadius),
-                border: Border.all(color: theme.colorScheme.border),
-              ),
-              child: m.Icon(
-                m.Icons.more_horiz,
-                size: 14,
-                color: theme.colorScheme.foreground,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RowOverflowItem extends StatelessWidget {
-  final AlembicDropdownOption<RepositoryTileAction> option;
-
-  const _RowOverflowItem({required this.option});
-
-  @override
-  Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
-    m.Color foreground = option.destructive
-        ? theme.colorScheme.destructive
-        : theme.colorScheme.foreground;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      child: Row(
-        children: <Widget>[
-          if (option.icon != null) ...<Widget>[
-            m.Icon(option.icon, size: 14, color: foreground),
-            const Gap(AlembicShadcnTokens.gapSm),
-          ],
-          Expanded(
-            child: Text(
-              option.label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.typography.xSmall.copyWith(
-                color: foreground,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -1002,4 +871,18 @@ extension RepositoryDescriptionClean on String {
     String description = trim();
     return description.isEmpty ? null : description;
   }
+}
+
+extension _RepositoryAvailability on RepoState {
+  IconData get availabilityIcon => switch (this) {
+        RepoState.active => LucideIcons.hardDrive,
+        RepoState.archived => LucideIcons.archive,
+        RepoState.cloud => LucideIcons.cloudDownload,
+      };
+
+  Color availabilityColor(ThemeData theme) => switch (this) {
+        RepoState.active => AlembicShadcnTokens.success(theme),
+        RepoState.archived => AlembicShadcnTokens.warning(theme),
+        RepoState.cloud => theme.colorScheme.mutedForeground,
+      };
 }

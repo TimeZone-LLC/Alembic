@@ -179,6 +179,51 @@ void main() {
     expect(await archive.exists(), isTrue);
   });
 
+  test('promotion preserves imported non-git paths and the existing archive',
+      () async {
+    final String importedPath = '${caseDirectory.path}/external/project';
+    await persistRepoConfigByFullName(
+        repository.fullName, AlembicRepoConfig(checkoutPath: importedPath));
+    final ArcaneRepository arcane =
+        _createRepository(repository, caseDirectory);
+    await Directory('${arcane.archiveMasterPath}/.git').create(recursive: true);
+    final File master =
+        await File('${arcane.archiveMasterPath}/master.txt').create();
+    await master.writeAsString('master checkout');
+    final File existing =
+        await File('$importedPath/notes.txt').create(recursive: true);
+    await existing.writeAsString('unrelated notes');
+    final File archive = await File(arcane.imagePath).create(recursive: true);
+    await archive.writeAsString('existing archive');
+
+    await expectLater(arcane.promoteArchiveMaster(GitHub()), throwsException);
+
+    expect(await existing.readAsString(), 'unrelated notes');
+    expect(await archive.readAsString(), 'existing archive');
+    expect(await master.readAsString(), 'master checkout');
+  });
+
+  test('failed promotion retains the archive when destination parent is a file',
+      () async {
+    final File parent = await File('${caseDirectory.path}/blocked').create();
+    await parent.writeAsString('keep parent');
+    await persistRepoConfigByFullName(repository.fullName,
+        AlembicRepoConfig(checkoutPath: '${parent.path}/project'));
+    final ArcaneRepository arcane =
+        _createRepository(repository, caseDirectory);
+    await Directory('${arcane.archiveMasterPath}/.git').create(recursive: true);
+    final File archive = await File(arcane.imagePath).create(recursive: true);
+    await archive.writeAsString('existing archive');
+
+    await expectLater(arcane.promoteArchiveMaster(GitHub()),
+        throwsA(isA<FileSystemException>()));
+
+    expect(await archive.readAsString(), 'existing archive');
+    expect(
+        await Directory('${arcane.archiveMasterPath}/.git').exists(), isTrue);
+    expect(await parent.readAsString(), 'keep parent');
+  });
+
   test('background pull failure is observed after successful unarchive',
       () async {
     _PullFailureRunner runner = _PullFailureRunner();
@@ -212,6 +257,34 @@ void main() {
     expect(await Directory(arcane.repoPath).exists(), isTrue);
     expect(await archive.exists(), isFalse);
   });
+
+  test('failed promotion copy removes staging and preserves both originals',
+      () async {
+    final ArcaneRepository arcane =
+        _createRepository(repository, caseDirectory);
+    final Directory master = Directory(arcane.archiveMasterPath);
+    await Directory('${master.path}/.git').create(recursive: true);
+    final File source = await File('${master.path}/source.txt').create();
+    await source.writeAsString('preserve source');
+    final File archive = await File(arcane.imagePath).create(recursive: true);
+    await archive.writeAsString('preserve archive');
+    await Process.run('chmod', <String>['555', master.parent.path]);
+    await Process.run('chmod', <String>['000', source.path]);
+    try {
+      await expectLater(arcane.promoteArchiveMaster(GitHub()),
+          throwsA(isA<FileSystemException>()));
+      expect(await Directory(arcane.repoPath).exists(), isFalse);
+      expect(await archive.readAsString(), 'preserve archive');
+      expect(
+          await _temporaryEntries(
+              Directory(arcane.repoPath).parent, '.alembic-promotion-'),
+          isEmpty);
+    } finally {
+      await Process.run('chmod', <String>['755', master.parent.path]);
+      await Process.run('chmod', <String>['600', source.path]);
+    }
+    expect(await source.readAsString(), 'preserve source');
+  }, skip: Platform.isWindows || Platform.environment['USER'] == 'root');
 
   test('archive master fetch failure propagates and retains prior state',
       () async {
@@ -361,6 +434,7 @@ class _SafeRunner {
     BehaviorSubject<String>? stdout,
     BehaviorSubject<String>? stderr,
     String? workingDirectory,
+    Map<String, String>? environment,
     bool redactOutput = true,
   }) async {
     if (command == 'git' && args.contains('--get')) {
@@ -379,6 +453,7 @@ class _PullFailureRunner {
     BehaviorSubject<String>? stdout,
     BehaviorSubject<String>? stderr,
     String? workingDirectory,
+    Map<String, String>? environment,
     bool redactOutput = true,
   }) async {
     if (command == 'git' && args.contains('pull')) {
@@ -410,6 +485,7 @@ class _ArchiveMasterRunner {
     BehaviorSubject<String>? stdout,
     BehaviorSubject<String>? stderr,
     String? workingDirectory,
+    Map<String, String>? environment,
     bool redactOutput = true,
   }) async {
     calls.add(List<String>.of(args));

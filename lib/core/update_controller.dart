@@ -61,14 +61,19 @@ class UpdateController {
       autoCheckEnabled: _autoCheckEnabled,
       currentVersion: _currentVersion,
     ));
-    if (_autoCheckEnabled) {
+    _scheduleAutomaticCheck();
+  }
+
+  void _scheduleAutomaticCheck() {
+    _startupTimer?.cancel();
+    _startupTimer = null;
+    if (_started && _autoCheckEnabled) {
       _startupTimer = Timer(_startupCheckDelay, () {
-        unawaited(checkNow());
+        _startupTimer = null;
+        if (_autoCheckEnabled) {
+          unawaited(checkNow());
+        }
       });
-      _diagnostics.trace(_logTag,
-          'startup update check scheduled in ${_startupCheckDelay.inSeconds}s');
-    } else {
-      _diagnostics.trace(_logTag, 'auto-check disabled; no startup check');
     }
   }
 
@@ -83,6 +88,7 @@ class UpdateController {
   Future<void> setAutoCheck(bool enabled) async {
     await alembic_main.boxSettings.put(autoCheckKey, enabled);
     _emit(value.copyWith(autoCheckEnabled: enabled));
+    _scheduleAutomaticCheck();
     _diagnostics.log(_logTag, 'auto-check set to $enabled');
   }
 

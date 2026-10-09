@@ -10,8 +10,11 @@ import 'package:path/path.dart' as p;
 export 'package:alembic/core/update_manifest.dart';
 
 class AppUpdateService {
-  static const String defaultManifestUrl =
-      'https://github.com/ArcaneArts/alembic/releases/latest/download/update.json';
+  static const String defaultManifestUrl = String.fromEnvironment(
+    'ALEMBIC_UPDATE_MANIFEST_URL',
+    defaultValue:
+        'https://github.com/TimeZone-LLC/Alembic/releases/latest/download/update.json',
+  );
 
   final DesktopPlatformAdapter adapter;
   final String manifestUrl;

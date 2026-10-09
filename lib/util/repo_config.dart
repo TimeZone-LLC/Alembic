@@ -8,11 +8,32 @@ import 'extensions.dart';
 
 /// Functions for working with repository configurations
 AlembicRepoConfig getRepoConfig(Repository repo) =>
-    AlembicRepoConfig.fromJson(boxSettings.get("config/${repo.fullName}",
-        defaultValue: AlembicRepoConfig().json));
+    getRepoConfigByFullName(repo.fullName);
+
+AlembicRepoConfig getRepoConfigByFullName(String fullName) =>
+    AlembicRepoConfig.fromJson(boxSettings.get(
+        "config/${fullName.toLowerCase()}",
+        defaultValue: boxSettings.get("config/$fullName",
+            defaultValue: AlembicRepoConfig().json)));
 
 void setRepoConfig(Repository repo, AlembicRepoConfig config) =>
-    boxSettings.put("config/${repo.fullName}", config.json);
+    persistRepoConfigByFullName(repo.fullName, config);
+
+Future<void> persistRepoConfigByFullName(
+        String fullName, AlembicRepoConfig config) =>
+    boxSettings.put("config/${fullName.toLowerCase()}", config.json);
+
+String repositoryWorkspacePath(String fullName, {String? workspaceDirectory}) {
+  final DesktopPlatformAdapter adapter = DesktopPlatformAdapter.instance;
+  final String? checkoutPath = getRepoConfigByFullName(fullName).checkoutPath;
+  if (checkoutPath != null && checkoutPath.trim().isNotEmpty) {
+    return adapter.expandHomePath(checkoutPath);
+  }
+  return adapter.expandHomePath(adapter.joinPath(
+    workspaceDirectory ?? config.workspaceDirectory,
+    fullName,
+  ));
+}
 
 /// Functions for working with global app configuration
 AlembicConfig get config => AlembicConfig.fromJson(
@@ -144,6 +165,10 @@ class AlembicRepoConfig {
   String openDirectory;
   int? lastOpen;
   String? accountId;
+  String? checkoutPath;
+  String? authTransport;
+  String? sshIdentityFile;
+  String? sshHostAlias;
 
   /// Default constructor with reasonable defaults
   AlembicRepoConfig({
@@ -152,6 +177,10 @@ class AlembicRepoConfig {
     this.openDirectory = "/",
     this.lastOpen,
     this.accountId,
+    this.checkoutPath,
+    this.authTransport,
+    this.sshIdentityFile,
+    this.sshHostAlias,
   });
 
   /// Create config from JSON string
@@ -181,6 +210,10 @@ class AlembicRepoConfig {
       // Load other settings
       openDirectory = data["openDirectory"] as String? ?? "/";
       lastOpen = data["lastOpen"] as int?;
+      checkoutPath = data["checkoutPath"] as String?;
+      authTransport = data["authTransport"] as String?;
+      sshIdentityFile = data["sshIdentityFile"] as String?;
+      sshHostAlias = data["sshHostAlias"] as String?;
       final String? rawAccountId = data["accountId"] as String?;
       if (rawAccountId != null && rawAccountId.trim().isNotEmpty) {
         accountId = rawAccountId.trim();
@@ -198,6 +231,10 @@ class AlembicRepoConfig {
           "gitTool": gitTool!.name,
         "openDirectory": openDirectory,
         if (lastOpen != null) "lastOpen": lastOpen,
+        if (checkoutPath != null) "checkoutPath": checkoutPath,
+        if (authTransport != null) "authTransport": authTransport,
+        if (sshIdentityFile != null) "sshIdentityFile": sshIdentityFile,
+        if (sshHostAlias != null) "sshHostAlias": sshHostAlias,
         if (accountId != null && accountId!.trim().isNotEmpty)
           "accountId": accountId,
       });

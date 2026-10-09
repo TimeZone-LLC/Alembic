@@ -4,15 +4,17 @@ import 'package:alembic/core/repository_auth.dart';
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:alembic/util/git_accounts.dart';
 import 'package:arcane/arcane.dart';
+import 'package:arcane/generated/arcane_shadcn/shadcn_flutter.dart'
+    show showDialog;
 import 'package:fast_log/fast_log.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
 
 Future<bool> showRepositoryAuthDialog({
   required BuildContext context,
   required ArcaneRepository repo,
   required RepoAuthInfo current,
 }) async {
-  final bool? result = await m.showDialog<bool>(
+  final bool? result = await showDialog<bool>(
     context: context,
     builder: (BuildContext dialogContext) => _RepositoryAuthDialog(
       repo: repo,
@@ -145,7 +147,8 @@ class _RepositoryAuthDialogState extends State<_RepositoryAuthDialog> {
   Widget build(BuildContext context) {
     final RepoAuthInfo info = widget.current;
     final ThemeData theme = Theme.of(context);
-    return m.Dialog(
+    return ModalBackdrop(
+      surfaceClip: false,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
         child: AlembicPanel(
@@ -273,10 +276,10 @@ class _CurrentAuthBanner extends StatelessWidget {
   }
 
   IconData _iconFor(RepoAuthTransport transport) => switch (transport) {
-        RepoAuthTransport.httpsToken => m.Icons.vpn_key_outlined,
-        RepoAuthTransport.httpsPublic => m.Icons.public,
-        RepoAuthTransport.ssh => m.Icons.terminal,
-        RepoAuthTransport.unknown => m.Icons.help_outline,
+        RepoAuthTransport.httpsToken => LucideIcons.keyRound,
+        RepoAuthTransport.httpsPublic => LucideIcons.globe,
+        RepoAuthTransport.ssh => LucideIcons.terminal,
+        RepoAuthTransport.unknown => LucideIcons.circleHelp,
       };
 
   String _redactRemote(String url) {
@@ -301,31 +304,15 @@ class _AuthChoiceRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final Color borderColor =
-        selected ? theme.colorScheme.primary : theme.colorScheme.border;
-    final Color background = selected
-        ? m.Color.alphaBlend(
-            theme.colorScheme.primary.withValues(alpha: 0.08),
-            theme.colorScheme.card,
-          )
-        : theme.colorScheme.card;
-    return m.Material(
-      color: m.Colors.transparent,
-      child: m.InkWell(
-        onTap: onTap,
-        canRequestFocus: false,
-        borderRadius: BorderRadius.circular(AlembicShadcnTokens.controlRadius),
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AlembicShadcnTokens.gapMd,
-            vertical: AlembicShadcnTokens.gapSm,
-          ),
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius:
-                BorderRadius.circular(AlembicShadcnTokens.controlRadius),
-            border: Border.all(color: borderColor),
-          ),
+    return Semantics(
+      selected: selected,
+      child: Button(
+        onPressed: onTap,
+        style: selected
+            ? const ButtonStyle.secondary()
+            : const ButtonStyle.outline(),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
           child: Row(
             children: <Widget>[
               _RadioDot(selected: selected),
@@ -380,8 +367,7 @@ class _RadioDot extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(
-          color:
-              selected ? theme.colorScheme.primary : theme.colorScheme.border,
+          color: selected ? theme.colorScheme.ring : theme.colorScheme.border,
           width: 1.5,
         ),
       ),
@@ -391,7 +377,7 @@ class _RadioDot extends StatelessWidget {
               width: 8,
               height: 8,
               decoration: BoxDecoration(
-                color: theme.colorScheme.primary,
+                color: theme.colorScheme.ring,
                 shape: BoxShape.circle,
               ),
             )
@@ -456,13 +442,13 @@ class _AuthChoice {
   IconData get icon {
     switch (kind) {
       case _AuthChoiceKind.httpsAccount:
-        return m.Icons.vpn_key_outlined;
+        return LucideIcons.keyRound;
       case _AuthChoiceKind.httpsPublic:
-        return m.Icons.public;
+        return LucideIcons.globe;
       case _AuthChoiceKind.sshDefault:
-        return m.Icons.terminal;
+        return LucideIcons.terminal;
       case _AuthChoiceKind.sshKey:
-        return m.Icons.lock_outline;
+        return LucideIcons.lockKeyhole;
     }
   }
 

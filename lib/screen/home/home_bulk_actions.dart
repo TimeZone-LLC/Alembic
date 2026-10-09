@@ -7,7 +7,8 @@ import 'package:alembic/screen/home/home_tiles.dart';
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:alembic/util/repo_config.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:arcane/generated/arcane_shadcn/shadcn_flutter.dart'
+    show showDialog;
 import 'package:github/github.dart';
 
 class HomeBulkActionsCoordinator {
@@ -128,41 +129,30 @@ class HomeBulkActionsCoordinator {
 
   Future<HomeBulkAction?> _pickAction(BuildContext context) {
     List<HomeBulkAction> actions = _availableActions();
-    return m.showDialog<HomeBulkAction>(
+    return showDialog<HomeBulkAction>(
       context: context,
       builder: (BuildContext dialogContext) {
-        return m.Dialog(
-          child: AlembicPanel(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                const AlembicSectionHeader(
-                  title: 'Bulk Actions',
-                  subtitle: 'Run repository operations across larger sets.',
-                ),
-                const Gap(AlembicShadcnTokens.gapLg),
-                for (HomeBulkAction action in actions)
-                  Padding(
-                    padding: const EdgeInsets.only(
-                      bottom: AlembicShadcnTokens.gapSm,
-                    ),
-                    child: HomeBulkActionTile(
-                      action: action,
-                      onPressed: () => Navigator.of(dialogContext).pop(action),
-                    ),
-                  ),
-                const Gap(8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: AlembicToolbarButton(
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                    label: 'Close',
-                  ),
-                ),
-              ],
+        return AlembicDialogCard(
+          title: 'Bulk actions',
+          description: 'Run an operation across your repositories.',
+          actions: <Widget>[
+            AlembicToolbarButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              label: 'Close',
             ),
-          ),
+          ],
+          children: <Widget>[
+            for (HomeBulkAction action in actions)
+              Padding(
+                padding: const EdgeInsets.only(
+                  bottom: AlembicShadcnTokens.gapSm,
+                ),
+                child: HomeBulkActionTile(
+                  action: action,
+                  onPressed: () => Navigator.of(dialogContext).pop(action),
+                ),
+              ),
+          ],
         );
       },
     );

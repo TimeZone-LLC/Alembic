@@ -6,14 +6,15 @@ import 'package:alembic/main.dart';
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:alembic/util/git_accounts.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
 
 class AccountsSettingsPane extends StatefulWidget {
   final VoidCallback? onLogout;
+  final TokenValidator tokenValidator;
 
   const AccountsSettingsPane({
     super.key,
     this.onLogout,
+    this.tokenValidator = const TokenValidator(),
   });
 
   @override
@@ -38,7 +39,7 @@ class _AccountsSettingsPaneState extends State<AccountsSettingsPane> {
     _setBusy(true);
     try {
       TokenValidationResult result =
-          await const TokenValidator().validate(token);
+          await widget.tokenValidator.validate(token);
       if (!result.isValid) {
         await _notifyInvalidToken(result);
         return;
@@ -46,8 +47,8 @@ class _AccountsSettingsPaneState extends State<AccountsSettingsPane> {
       if (!mounted) {
         return;
       }
-      String resolvedName = await _promptAccountName(result);
-      if (resolvedName.isEmpty) {
+      String? resolvedName = await _promptAccountName(result);
+      if (resolvedName == null || resolvedName.isEmpty || !mounted) {
         return;
       }
       await addGitAccount(
@@ -65,7 +66,7 @@ class _AccountsSettingsPaneState extends State<AccountsSettingsPane> {
     }
   }
 
-  Future<String> _promptAccountName(TokenValidationResult result) async {
+  Future<String?> _promptAccountName(TokenValidationResult result) async {
     String? name = await showAlembicInputDialog(
       context,
       title: 'Name this Account',
@@ -74,7 +75,10 @@ class _AccountsSettingsPaneState extends State<AccountsSettingsPane> {
       placeholder: result.login ?? 'Work, Personal, Bot, ...',
       confirmText: 'Save',
     );
-    String resolved = (name ?? '').trim();
+    if (name == null) {
+      return null;
+    }
+    String resolved = name.trim();
     if (resolved.isNotEmpty) {
       return resolved;
     }
@@ -159,7 +163,7 @@ class _AccountsSettingsPaneState extends State<AccountsSettingsPane> {
     _setBusy(true);
     try {
       TokenValidationResult result =
-          await const TokenValidator().validate(token);
+          await widget.tokenValidator.validate(token);
       if (!result.isValid) {
         await _notifyInvalidToken(result);
         return;
@@ -197,7 +201,7 @@ class _AccountsSettingsPaneState extends State<AccountsSettingsPane> {
           'Each account can sign in to a different GitHub identity. Repos are aggregated across all linked accounts.',
       trailing: AlembicToolbarButton(
         label: _busy ? 'Working...' : 'Add account',
-        leadingIcon: m.Icons.add,
+        leadingIcon: LucideIcons.plus,
         onPressed: _busy ? null : _addAccount,
         prominent: true,
       ),
@@ -267,7 +271,7 @@ class _LogoutRow extends StatelessWidget {
         const Gap(AlembicShadcnTokens.gapLg),
         AlembicToolbarButton(
           label: 'Log out',
-          leadingIcon: m.Icons.logout,
+          leadingIcon: LucideIcons.logOut,
           destructive: true,
           compact: true,
           onPressed: onLogout,

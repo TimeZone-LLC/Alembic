@@ -1,3 +1,4 @@
+import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/repository_runtime.dart';
 import 'package:alembic/screen/home/home_repository_rows.dart';
 import 'package:alembic/screen/home/home_tiles.dart';
@@ -5,7 +6,7 @@ import 'package:alembic/screen/home/home_view_filters.dart';
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:alembic/util/git_accounts.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
 import 'package:github/github.dart';
 
 class HomeRepositoryBrowserPane extends StatefulWidget {
@@ -79,14 +80,38 @@ class _HomeRepositoryBrowserPaneState extends State<HomeRepositoryBrowserPane> {
   String get _subtitle {
     if (widget.filters.hasActiveFilters) {
       int count = widget.entries.length;
-      return '$count matching ${widget.totalCount} total';
+      return '$count of ${widget.totalCount} repositories';
     }
     return '${widget.totalCount} repositor${widget.totalCount == 1 ? 'y' : 'ies'}';
   }
 
-  List<HomeRepositoryEntry> get _selectedEntries => widget.entries
-      .where((entry) => _selection.isSelected(entry.lowerKey))
-      .toList();
+  List<HomeRepositoryEntry> get _activationEntries {
+    final Set<String> busy = <String>{
+      for (final RepositoryWork work in widget.runtime.repoWork.value)
+        work.repository.fullName.toLowerCase(),
+    };
+    return widget.entries
+        .where((HomeRepositoryEntry entry) =>
+            _selection.isSelected(entry.lowerKey) &&
+            entry.repoState != RepoState.active &&
+            !entry.syncing &&
+            !busy.contains(entry.lowerKey))
+        .toList();
+  }
+
+  String? get _activationLabel {
+    final List<HomeRepositoryEntry> entries = _activationEntries;
+    if (entries.isEmpty) return null;
+    if (entries.every(
+        (HomeRepositoryEntry entry) => entry.repoState == RepoState.cloud)) {
+      return 'Clone selected';
+    }
+    if (entries.every(
+        (HomeRepositoryEntry entry) => entry.repoState == RepoState.archived)) {
+      return 'Restore selected';
+    }
+    return 'Make local';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -95,25 +120,34 @@ class _HomeRepositoryBrowserPaneState extends State<HomeRepositoryBrowserPane> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         Padding(
-          padding: const EdgeInsets.only(bottom: AlembicShadcnTokens.gapSm),
-          child: _BrowserHeader(
-            subtitle: _subtitle,
-            trailing: widget.entries.isEmpty
-                ? null
-                : m.ListenableBuilder(
-                    listenable: _selection,
-                    builder: (context, _) => _HeaderActions(
-                      totalVisible: widget.entries.length,
-                      selectedCount: _selection.count,
-                      onSelectAll: _selectVisible,
-                      onClearSelection: _selection.clear,
-                      onCloneSelected: _cloneSelected,
-                    ),
-                  ),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: m.ListenableBuilder(
+            listenable: _selection,
+            builder: (BuildContext context, Widget? child) =>
+                StreamBuilder<List<RepositoryWork>>(
+              stream: widget.runtime.repoWork.stream,
+              builder: (BuildContext context,
+                      AsyncSnapshot<List<RepositoryWork>> snapshot) =>
+                  ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 32),
+                child: _BrowserHeader(
+                  subtitle: _subtitle,
+                  trailing: !_selection.active
+                      ? null
+                      : _HeaderActions(
+                          totalVisible: widget.entries.length,
+                          selectedCount: _selection.count,
+                          activationLabel: _activationLabel,
+                          onSelectAll: _selectVisible,
+                          onClearSelection: _selection.clear,
+                          onCloneSelected: _cloneSelected,
+                        ),
+                ),
+              ),
+            ),
           ),
         ),
-        m.Divider(
-          height: 1,
+        Divider(
           thickness: 1,
           color: theme.colorScheme.border,
         ),
@@ -150,7 +184,7 @@ class _HomeRepositoryBrowserPaneState extends State<HomeRepositoryBrowserPane> {
   }
 
   Future<void> _cloneSelected() async {
-    List<HomeRepositoryEntry> selected = _selectedEntries;
+    List<HomeRepositoryEntry> selected = _activationEntries;
     if (selected.isEmpty) {
       return;
     }
@@ -174,38 +208,43 @@ class _BrowserHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     ThemeData theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: <Widget>[
-        Text(
-          'Repositories',
-          style: theme.typography.small.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const Gap(AlembicShadcnTokens.gapSm),
-        Expanded(
-          child: Text(
-            subtitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.typography.xSmall.copyWith(
-              color: theme.colorScheme.mutedForeground,
-            ),
-          ),
-        ),
+    final Widget heading = Text(
+      subtitle,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: theme.typography.small.copyWith(
+        fontWeight: FontWeight.w500,
+        color: theme.colorScheme.mutedForeground,
+      ),
+    );
+    return LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+      if (constraints.maxWidth < 720) {
+        return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              heading,
+              if (trailing != null) ...<Widget>[
+                const Gap(AlembicShadcnTokens.gapSm),
+                trailing!,
+              ],
+            ]);
+      }
+      return Row(children: <Widget>[
+        Expanded(child: heading),
         if (trailing != null) ...<Widget>[
           const Gap(AlembicShadcnTokens.gapMd),
           trailing!,
         ],
-      ],
-    );
+      ]);
+    });
   }
 }
 
 class _HeaderActions extends StatelessWidget {
   final int totalVisible;
   final int selectedCount;
+  final String? activationLabel;
   final VoidCallback onSelectAll;
   final VoidCallback onClearSelection;
   final VoidCallback onCloneSelected;
@@ -213,6 +252,7 @@ class _HeaderActions extends StatelessWidget {
   const _HeaderActions({
     required this.totalVisible,
     required this.selectedCount,
+    required this.activationLabel,
     required this.onSelectAll,
     required this.onClearSelection,
     required this.onCloneSelected,
@@ -220,32 +260,45 @@ class _HeaderActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    bool allSelected = selectedCount == totalVisible;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
+    final ThemeData theme = Theme.of(context);
+    final bool allSelected = selectedCount == totalVisible;
+    return Wrap(
+      spacing: AlembicShadcnTokens.gapSm,
+      runSpacing: AlembicShadcnTokens.gapSm,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: <Widget>[
         if (selectedCount > 0) ...<Widget>[
-          AlembicBadge(
-            label: '$selectedCount selected',
-            tone: AlembicBadgeTone.outline,
+          Text(
+            '$selectedCount selected',
+            style: theme.typography.xSmall.copyWith(
+              color: theme.colorScheme.mutedForeground,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          const Gap(AlembicShadcnTokens.gapSm),
         ],
+        if (!allSelected)
+          AlembicToolbarButton(
+            label: 'Select all',
+            leadingIcon: LucideIcons.listChecks,
+            compact: true,
+            quiet: true,
+            onPressed: onSelectAll,
+          ),
         AlembicToolbarButton(
-          label: allSelected ? 'Clear' : 'Select all',
-          leadingIcon: allSelected ? m.Icons.close : m.Icons.select_all,
+          label: 'Deselect all',
+          leadingIcon: LucideIcons.x,
           compact: true,
-          onPressed: allSelected ? onClearSelection : onSelectAll,
+          quiet: true,
+          onPressed: onClearSelection,
         ),
-        const Gap(AlembicShadcnTokens.gapSm),
-        AlembicToolbarButton(
-          label: 'Clone selected',
-          leadingIcon: m.Icons.add_link,
-          compact: true,
-          prominent: selectedCount > 0,
-          onPressed: selectedCount == 0 ? null : onCloneSelected,
-        ),
+        if (activationLabel != null)
+          AlembicToolbarButton(
+            label: activationLabel!,
+            leadingIcon: LucideIcons.download,
+            compact: true,
+            prominent: true,
+            onPressed: onCloneSelected,
+          ),
       ],
     );
   }
@@ -317,7 +370,7 @@ class _RepositoryList extends StatelessWidget {
       for (int index = 0; index < entries.length; index++)
         entries[index].lowerKey: index,
     };
-    return m.Scrollbar(
+    return Scrollbar(
       controller: scrollController,
       child: m.CustomScrollView(
         controller: scrollController,

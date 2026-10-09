@@ -1,3 +1,4 @@
+import 'package:alembic/app/alembic_dialogs.dart';
 import 'dart:async';
 
 import 'package:alembic/core/archive_master_service.dart';
@@ -8,7 +9,7 @@ import 'package:alembic/screen/login.dart';
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:alembic/util/git_accounts.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
 import 'package:flutter_svg/flutter_svg.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -62,7 +63,7 @@ class _SplashScreenState extends State<SplashScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-        m.MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+        alembicPageRoute<void>(builder: (_) => const LoginScreen()),
         (_) => false,
       );
     });
@@ -73,7 +74,7 @@ class _SplashScreenState extends State<SplashScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-        m.MaterialPageRoute<void>(
+        alembicPageRoute<void>(
           builder: (_) => AlembicHome(
             registry: accountRegistry,
             runtime: repositoryRuntimeInstance,
@@ -167,7 +168,7 @@ class _SplashPanel extends StatelessWidget {
                   ),
                 ),
                 const Gap(AlembicShadcnTokens.gapLg),
-                const m.LinearProgressIndicator(minHeight: 6),
+                const AlembicProgressBar(height: 4),
               ],
             ),
           ),

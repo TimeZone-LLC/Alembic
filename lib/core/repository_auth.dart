@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/main.dart';
+import 'package:alembic/platform/desktop_platform_adapter.dart';
 import 'package:alembic/util/clone_transport.dart';
 import 'package:alembic/util/git_accounts.dart';
 import 'package:alembic/util/repo_config.dart';
@@ -77,7 +78,7 @@ class RepoAuthInfo {
   }
 
   static String _shortPath(String path) {
-    final String home = Platform.environment['HOME'] ?? '';
+    final String home = DesktopPlatformAdapter.instance.defaultHomeDirectory;
     if (home.isNotEmpty && path.startsWith(home)) {
       return '~${path.substring(home.length)}';
     }
@@ -110,44 +111,66 @@ class RepositoryAuthInspector {
   }
 
   RepoAuthInfo _projectedAuth(ArcaneRepository repo) {
+    final AlembicRepoConfig preference = getRepoConfig(repo.repository);
     final CloneTransportMode mode = loadCloneTransportMode();
-    final GitAccount? account = repo.resolvedAccount;
-    if (mode == CloneTransportMode.sshPreferred) {
+    if (preference.authTransport == 'ssh' ||
+        (preference.authTransport == null &&
+            mode == CloneTransportMode.sshPreferred)) {
+      final GitAccount? account = repo.resolvedAccount;
       return RepoAuthInfo(
         transport: RepoAuthTransport.ssh,
         remoteUrl: repo.sshCloneUrl,
         accountId: account?.id,
         accountName: account?.name,
         accountLogin: account?.login,
-        sshKeyPath: null,
-        sshHostAlias: 'github.com',
+        sshKeyPath: preference.sshIdentityFile,
+        sshHostAlias: preference.sshHostAlias ?? 'github.com',
         isCloned: false,
         tokenMatchesAccount: account != null,
       );
     }
-    if (account != null && account.token.isNotEmpty) {
+    return _httpsAuth(
+      repo: repo,
+      remoteUrl: repo.publicCloneUrl,
+      isCloned: false,
+    );
+  }
+
+  /// HTTPS remotes carry no credentials, so the account shown is the one
+  /// Alembic will authenticate with: the bound account, else the primary one.
+  RepoAuthInfo _httpsAuth({
+    required ArcaneRepository repo,
+    required String remoteUrl,
+    required bool isCloned,
+  }) {
+    final GitAccount? account = repo.resolvedAccount;
+    if (account == null || account.token.isEmpty) {
       return RepoAuthInfo(
-        transport: RepoAuthTransport.httpsToken,
-        remoteUrl: repo.authenticatedCloneUrl,
-        accountId: account.id,
-        accountName: account.name,
-        accountLogin: account.login,
+        transport: RepoAuthTransport.httpsPublic,
+        remoteUrl: remoteUrl,
+        accountId: null,
+        accountName: null,
+        accountLogin: null,
         sshKeyPath: null,
         sshHostAlias: null,
-        isCloned: false,
-        tokenMatchesAccount: true,
+        isCloned: isCloned,
+        tokenMatchesAccount: false,
       );
     }
+    final String? boundId =
+        getRepoConfig(repo.repository).accountId ?? repo.accountId;
+    final bool boundAccountExists =
+        boundId == null || findGitAccountById(boundId) != null;
     return RepoAuthInfo(
-      transport: RepoAuthTransport.httpsPublic,
-      remoteUrl: repo.publicCloneUrl,
-      accountId: null,
-      accountName: null,
-      accountLogin: null,
+      transport: RepoAuthTransport.httpsToken,
+      remoteUrl: remoteUrl,
+      accountId: account.id,
+      accountName: account.name,
+      accountLogin: account.login,
       sshKeyPath: null,
       sshHostAlias: null,
-      isCloned: false,
-      tokenMatchesAccount: false,
+      isCloned: isCloned,
+      tokenMatchesAccount: boundAccountExists,
     );
   }
 
@@ -189,35 +212,8 @@ class RepositoryAuthInspector {
       );
     }
 
-    final RegExpMatch? tokenMatch = _httpsTokenPattern.firstMatch(url);
-    if (tokenMatch != null) {
-      final String token = tokenMatch.group(1) ?? '';
-      final GitAccount? matched = _findAccountByToken(token);
-      return RepoAuthInfo(
-        transport: RepoAuthTransport.httpsToken,
-        remoteUrl: url,
-        accountId: matched?.id,
-        accountName: matched?.name,
-        accountLogin: matched?.login,
-        sshKeyPath: null,
-        sshHostAlias: null,
-        isCloned: isCloned,
-        tokenMatchesAccount: matched != null,
-      );
-    }
-
-    if (_httpsPublicPattern.hasMatch(url)) {
-      return RepoAuthInfo(
-        transport: RepoAuthTransport.httpsPublic,
-        remoteUrl: url,
-        accountId: null,
-        accountName: null,
-        accountLogin: null,
-        sshKeyPath: null,
-        sshHostAlias: null,
-        isCloned: isCloned,
-        tokenMatchesAccount: false,
-      );
+    if (_httpsGitHubPattern.hasMatch(url)) {
+      return _httpsAuth(repo: repo, remoteUrl: url, isCloned: isCloned);
     }
 
     return RepoAuthInfo(
@@ -233,18 +229,6 @@ class RepositoryAuthInspector {
     );
   }
 
-  GitAccount? _findAccountByToken(String token) {
-    if (token.isEmpty) {
-      return null;
-    }
-    for (final GitAccount account in loadGitAccounts()) {
-      if (account.token == token) {
-        return account;
-      }
-    }
-    return null;
-  }
-
   String? _extractIdentityFile(String sshCommand) {
     final String trimmed = sshCommand.trim();
     if (trimmed.isEmpty) {
@@ -254,7 +238,8 @@ class RepositoryAuthInspector {
     if (match == null) {
       return null;
     }
-    final String raw = (match.group(1) ?? match.group(2) ?? '').trim();
+    final String raw =
+        (match.group(1) ?? match.group(2) ?? match.group(3) ?? '').trim();
     if (raw.isEmpty) {
       return null;
     }
@@ -290,16 +275,12 @@ class RepositoryAuthInspector {
     r'^(?:ssh://)?git@([^/:]+)[:/]([^/]+)/(.+?)(?:\.git)?/?$',
   );
 
-  static final RegExp _httpsTokenPattern = RegExp(
-    r'^https://([^@/:]+)@github\.com/.+',
-  );
-
-  static final RegExp _httpsPublicPattern = RegExp(
-    r'^https?://github\.com/.+',
+  static final RegExp _httpsGitHubPattern = RegExp(
+    r'^https?://(?:[^@/]+@)?github\.com/.+',
   );
 
   static final RegExp _identityPattern = RegExp(
-    r'-i\s+(?:"([^"]+)"|(\S+))',
+    r'''-i\s+(?:"([^"]+)"|'([^']+)'|(\S+))''',
   );
 }
 
@@ -312,25 +293,23 @@ class RepositoryAuthSwapper {
     required ArcaneRepository repo,
     required GitAccount account,
   }) async {
-    _persistAccountId(repo, account.id);
-    if (!await repo.isActive) {
-      return;
-    }
-    final String url =
-        'https://${account.token}@github.com/${repo.repository.owner?.login}/${repo.repository.name}.git';
-    await _setRemoteUrl(repo.repoPath, url);
-    await _clearSshCommand(repo.repoPath);
+    await _apply(
+        repo,
+        getRepoConfig(repo.repository)
+          ..authTransport = RepoAuthTransport.httpsToken.name
+          ..accountId = account.id
+          ..sshIdentityFile = null
+          ..sshHostAlias = null);
   }
 
   Future<void> applyHttpsPublic({required ArcaneRepository repo}) async {
-    _persistAccountId(repo, null);
-    if (!await repo.isActive) {
-      return;
-    }
-    final String url =
-        'https://github.com/${repo.repository.owner?.login}/${repo.repository.name}.git';
-    await _setRemoteUrl(repo.repoPath, url);
-    await _clearSshCommand(repo.repoPath);
+    await _apply(
+        repo,
+        getRepoConfig(repo.repository)
+          ..authTransport = RepoAuthTransport.httpsPublic.name
+          ..accountId = null
+          ..sshIdentityFile = null
+          ..sshHostAlias = null);
   }
 
   Future<void> applySsh({
@@ -338,75 +317,44 @@ class RepositoryAuthSwapper {
     String hostAlias = 'github.com',
     String? identityFile,
   }) async {
-    if (!await repo.isActive) {
-      return;
-    }
-    final String url =
-        'git@$hostAlias:${repo.repository.owner?.login}/${repo.repository.name}.git';
-    await _setRemoteUrl(repo.repoPath, url);
     final String trimmedKey = (identityFile ?? '').trim();
-    if (trimmedKey.isEmpty) {
-      await _clearSshCommand(repo.repoPath);
-      return;
+    final String host = hostAlias.trim();
+    if (!RegExp(r'^[a-zA-Z0-9][a-zA-Z0-9.-]*$').hasMatch(host)) {
+      throw ArgumentError.value(
+          hostAlias, 'hostAlias', 'Invalid SSH host alias');
     }
-    await _setSshCommand(repo.repoPath, trimmedKey);
+    await _apply(
+        repo,
+        getRepoConfig(repo.repository)
+          ..authTransport = RepoAuthTransport.ssh.name
+          ..accountId = null
+          ..sshIdentityFile = trimmedKey.isEmpty ? null : expandPath(trimmedKey)
+          ..sshHostAlias = host);
   }
 
-  void _persistAccountId(ArcaneRepository repo, String? accountId) {
-    final AlembicRepoConfig current = getRepoConfig(repo.repository);
-    current.accountId = accountId;
-    setRepoConfig(repo.repository, current);
-  }
-
-  Future<void> _setRemoteUrl(String repoPath, String url) async {
-    final int exitCode = await commandRunner(
-      'git',
-      <String>['-C', repoPath, 'remote', 'set-url', 'origin', url],
+  Future<void> _apply(
+      ArcaneRepository repo, AlembicRepoConfig preference) async {
+    await repo.applyAuthenticationPreference(
+      preference: preference,
+      runner: commandRunner,
     );
-    if (exitCode != 0) {
-      throw Exception('Failed to set remote.origin.url');
-    }
-  }
-
-  Future<void> _clearSshCommand(String repoPath) async {
-    await commandRunner(
-      'git',
-      <String>[
-        '-C',
-        repoPath,
-        'config',
-        '--local',
-        '--unset',
-        'core.sshCommand',
-      ],
+    await repo.applyAuthenticationPreference(
+      checkoutPath: repo.archiveMasterPath,
+      preference: preference,
+      runner: commandRunner,
     );
-  }
-
-  Future<void> _setSshCommand(String repoPath, String identityFile) async {
-    final String expanded = expandPath(identityFile);
-    final String command = 'ssh -i "$expanded" -o IdentitiesOnly=yes';
-    final int exitCode = await commandRunner(
-      'git',
-      <String>[
-        '-C',
-        repoPath,
-        'config',
-        '--local',
-        'core.sshCommand',
-        command,
-      ],
-    );
-    if (exitCode != 0) {
-      throw Exception('Failed to set core.sshCommand');
-    }
+    await persistRepoConfigByFullName(repo.repository.fullName, preference);
   }
 }
 
 class SshKeyDiscoverer {
-  const SshKeyDiscoverer();
+  final String? homeDirectory;
+
+  const SshKeyDiscoverer({this.homeDirectory});
 
   List<String> discover() {
-    final String home = Platform.environment['HOME'] ?? '';
+    final String home =
+        homeDirectory ?? DesktopPlatformAdapter.instance.defaultHomeDirectory;
     if (home.isEmpty) {
       return <String>[];
     }

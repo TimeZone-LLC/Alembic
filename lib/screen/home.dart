@@ -34,7 +34,7 @@ import 'package:alembic/util/repo_config.dart';
 import 'package:alembic/util/window.dart';
 import 'package:alembic/widget/repository_tile_actions.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
 import 'package:flutter/services.dart' as services;
 import 'package:github/github.dart';
 import 'package:window_manager/window_manager.dart';
@@ -81,7 +81,7 @@ class _AlembicHomeState extends State<AlembicHome> {
   HomeFilterState _filters = const HomeFilterState.initial();
   int _revision = 0;
   bool _updateAvailable = false;
-  bool _tokenPropagationDone = false;
+  bool _remoteScrubDone = false;
 
   @override
   void initState() {
@@ -167,19 +167,20 @@ class _AlembicHomeState extends State<AlembicHome> {
     setState(() {
       _listState = state;
     });
-    if (state.status == RepositoryListStatus.ready && !_tokenPropagationDone) {
-      _tokenPropagationDone = true;
-      unawaited(_runTokenPropagation());
+    if (state.status == RepositoryListStatus.ready && !_remoteScrubDone) {
+      _remoteScrubDone = true;
+      unawaited(_runRemoteCredentialScrub());
     }
   }
 
-  Future<void> _runTokenPropagation() async {
-    int updated = await _controller.updateAllRepositoryTokens();
+  Future<void> _runRemoteCredentialScrub() async {
+    int updated = await _controller.scrubRepositoryRemoteCredentials();
     if (updated > 0 && mounted) {
       await showAlembicInfoDialog(
         context,
-        title: 'Token Update',
-        message: 'Updated tokens for $updated repositories.',
+        title: 'Remote Cleanup',
+        message: 'Removed embedded access tokens from the git remotes of '
+            '$updated repositories.',
       );
     }
   }
@@ -322,17 +323,25 @@ class _AlembicHomeState extends State<AlembicHome> {
   }
 
   Future<void> _cloneSelectedEntries(List<HomeRepositoryEntry> entries) async {
+    final bool restoring = entries.every(
+        (HomeRepositoryEntry entry) => entry.repoState == RepoState.archived);
+    final bool cloning = entries.every(
+        (HomeRepositoryEntry entry) => entry.repoState == RepoState.cloud);
     List<String> failed = await _bulkActions.executeOperation(
       entries.map((entry) => entry.repository).toList(),
       (repository) => repository.ensureRepositoryActive(
         _controller.githubForRepository(repository.repository),
       ),
-      label: 'Cloning selected repositories',
+      label: restoring
+          ? 'Restoring selected repositories'
+          : cloning
+              ? 'Cloning selected repositories'
+              : 'Making selected repositories local',
     );
     if (failed.isNotEmpty && mounted) {
       await showAlembicInfoDialog(
         context,
-        title: 'Clone Issues',
+        title: 'Repository Issues',
         message: HomeBulkActionsCoordinator.failureMessage(failed),
       );
     }
@@ -363,14 +372,14 @@ class _AlembicHomeState extends State<AlembicHome> {
   void _openImportScreen() {
     unawaited(
       Navigator.of(context, rootNavigator: true).push(
-        m.MaterialPageRoute<void>(builder: (_) => const ImportScreen()),
+        alembicPageRoute<void>(builder: (_) => const ImportScreen()),
       ),
     );
   }
 
   void _openLogin() {
     Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-      m.MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+      alembicPageRoute<void>(builder: (_) => const LoginScreen()),
       (_) => false,
     );
   }
@@ -438,9 +447,15 @@ class _AlembicHomeState extends State<AlembicHome> {
     Widget scaffold = Stack(
       children: <Widget>[
         AlembicScaffold(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          child: m.Material(
-            type: m.MaterialType.transparency,
+          padding: EdgeInsets.fromLTRB(
+            20,
+            10 +
+                (Platform.isWindows ? AlembicShadcnTokens.macTitlebarInset : 0),
+            20,
+            10,
+          ),
+          child: ColoredBox(
+            color: Theme.of(context).colorScheme.background,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
@@ -461,6 +476,8 @@ class _AlembicHomeState extends State<AlembicHome> {
                   onRefresh: () => unawaited(_refreshRepositories()),
                   onCloneLink: _openCloneLink,
                   onImport: _openImportScreen,
+                  onBulkActions: () =>
+                      unawaited(_bulkActions.showActionsDialog(context)),
                   onOpenSettings: _openSettings,
                 ),
                 const Gap(10),
@@ -485,7 +502,7 @@ class _AlembicHomeState extends State<AlembicHome> {
             ),
           ),
         ),
-        if (Platform.isMacOS)
+        if (Platform.isMacOS || Platform.isWindows)
           const Positioned(
             top: 0,
             left: 0,

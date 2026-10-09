@@ -1,7 +1,7 @@
 import 'package:alembic/ui/alembic_tokens.dart';
 import 'package:alembic/ui/controls/alembic_models.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
 
 class AlembicBadge extends StatelessWidget {
   final String label;

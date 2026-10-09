@@ -1,6 +1,6 @@
 import 'package:alembic/ui/alembic_tokens.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
 
 enum AlembicSurfaceTone {
   panel,
@@ -44,31 +44,9 @@ class AlembicScaffold extends StatelessWidget {
           )
         : padding;
     Color background = theme.colorScheme.background;
-    bool isDark = theme.colorScheme.brightness == Brightness.dark;
-    double highlightAlpha = isDark ? 0.055 : 0.018;
-    double edgeAlpha = isDark ? 0.14 : 0.06;
-    Color highlightColor = m.Color.alphaBlend(
-      m.Colors.white.withValues(alpha: highlightAlpha),
-      background,
-    );
-    Color edgeColor = isDark
-        ? m.Colors.white.withValues(alpha: edgeAlpha)
-        : m.Colors.black.withValues(alpha: edgeAlpha);
     return DecoratedBox(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          stops: const <double>[0.0, 0.12, 1.0],
-          colors: <Color>[
-            highlightColor,
-            background,
-            background,
-          ],
-        ),
-        border: Border(
-          top: BorderSide(color: edgeColor, width: 0.5),
-        ),
+        color: background,
       ),
       child: SafeArea(
         child: Padding(
@@ -294,66 +272,6 @@ class AlembicIconTile extends StatelessWidget {
   }
 }
 
-class AlembicEmptyState extends StatelessWidget {
-  final String title;
-  final String description;
-  final IconData icon;
-  final Widget? actions;
-
-  const AlembicEmptyState({
-    super.key,
-    required this.title,
-    required this.description,
-    this.icon = m.Icons.search_off,
-    this.actions,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
-    return Center(
-      child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                m.Icon(
-                  icon,
-                  size: 28,
-                  color: theme.colorScheme.mutedForeground,
-                ),
-                const Gap(AlembicShadcnTokens.gapMd),
-                Text(
-                  title,
-                  textAlign: TextAlign.center,
-                  style: theme.typography.large.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const Gap(AlembicShadcnTokens.gapSm),
-                Text(
-                  description,
-                  textAlign: TextAlign.center,
-                  style: theme.typography.small.copyWith(
-                    color: theme.colorScheme.mutedForeground,
-                  ),
-                ),
-                if (actions != null) ...<Widget>[
-                  const Gap(AlembicShadcnTokens.gapXl),
-                  actions!,
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class AlembicDialogCard extends StatelessWidget {
   final String title;
   final String description;
@@ -369,17 +287,30 @@ class AlembicDialogCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => m.Dialog(
+  Widget build(BuildContext context) => ModalBackdrop(
+        surfaceClip: false,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 460),
           child: AlembicPanel(
-            child: Column(
+            child: SingleChildScrollView(
+                child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                AlembicSectionHeader(
-                  title: title,
-                  subtitle: description,
+                Text(
+                  title,
+                  style: Theme.of(context).typography.large.copyWith(
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.4,
+                      ),
+                ),
+                const Gap(AlembicShadcnTokens.gapSm),
+                Text(
+                  description,
+                  style: Theme.of(context).typography.small.copyWith(
+                        color: Theme.of(context).colorScheme.mutedForeground,
+                        height: 1.5,
+                      ),
                 ),
                 if (children.isNotEmpty) ...<Widget>[
                   const Gap(AlembicShadcnTokens.gapXl),
@@ -387,13 +318,17 @@ class AlembicDialogCard extends StatelessWidget {
                 ],
                 if (actions.isNotEmpty) ...<Widget>[
                   const Gap(AlembicShadcnTokens.gapXl),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: actions,
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: Wrap(
+                      alignment: WrapAlignment.end,
+                      runSpacing: 8,
+                      children: actions,
+                    ),
                   ),
                 ],
               ],
-            ),
+            )),
           ),
         ),
       );

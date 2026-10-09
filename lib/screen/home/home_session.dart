@@ -6,7 +6,6 @@ import 'package:alembic/screen/login.dart';
 import 'package:alembic/screen/splash.dart';
 import 'package:alembic/util/git_accounts.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
 
 class HomeSessionGuard {
   final HomeController controller;
@@ -74,7 +73,7 @@ class HomeSessionGuard {
       return;
     }
     Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-      m.MaterialPageRoute<void>(builder: (_) => destination),
+      alembicPageRoute<void>(builder: (_) => destination),
       (_) => false,
     );
   }

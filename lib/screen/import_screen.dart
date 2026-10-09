@@ -1,3 +1,4 @@
+import 'package:alembic/app/alembic_dialogs.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -8,11 +9,11 @@ import 'package:alembic/ui/alembic_ui.dart';
 import 'package:alembic/util/repo_config.dart';
 import 'package:arcane/arcane.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
 
 Future<void> showImportScreen(BuildContext context) {
   return Navigator.of(context, rootNavigator: true).push(
-    m.MaterialPageRoute<void>(
+    alembicPageRoute<void>(
       builder: (_) => const ImportScreen(),
     ),
   );
@@ -55,10 +56,10 @@ class _ImportScreenState extends State<ImportScreen> {
   }
 
   bool _allRepositoriesSelected(List<DiscoveredRepo> repositories) =>
-      repositories.isNotEmpty &&
-      repositories.every(
-        (repo) => _selectedKeys.contains(repo.selectionKey),
-      );
+      repositories.any((DiscoveredRepo repo) => repo.isGitHub) &&
+      repositories.where((DiscoveredRepo repo) => repo.isGitHub).every(
+            (repo) => _selectedKeys.contains(repo.selectionKey),
+          );
 
   @override
   void initState() {
@@ -168,6 +169,9 @@ class _ImportScreenState extends State<ImportScreen> {
   }
 
   void _toggleRepo(DiscoveredRepo repo) {
+    if (!repo.isGitHub) {
+      return;
+    }
     setState(() {
       if (!_selectedKeys.remove(repo.selectionKey)) {
         _selectedKeys.add(repo.selectionKey);
@@ -183,7 +187,8 @@ class _ImportScreenState extends State<ImportScreen> {
         _selectedKeys = <String>{};
       } else {
         _selectedKeys = <String>{
-          for (DiscoveredRepo repo in filtered) repo.selectionKey,
+          for (DiscoveredRepo repo in filtered)
+            if (repo.isGitHub) repo.selectionKey,
         };
       }
     });
@@ -202,7 +207,10 @@ class _ImportScreenState extends State<ImportScreen> {
     WorkspaceOperationResult outcome =
         await repositoryActionsController.importDiscovered(
       rootPath: result.rootPath,
-      selectedSlugs: _selectedKeys.toList(),
+      repositories: result.repos
+          .where((DiscoveredRepo repo) =>
+              _selectedKeys.contains(repo.selectionKey))
+          .toList(),
       setWorkspaceToRoot: _setAsWorkspace,
     );
     if (!mounted) {
@@ -329,7 +337,7 @@ class _ImportIdleView extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 m.Icon(
-                  m.Icons.search,
+                  LucideIcons.search,
                   size: 40,
                   color: theme.colorScheme.mutedForeground,
                 ),
@@ -356,7 +364,7 @@ class _ImportIdleView extends StatelessWidget {
                       child: AlembicTextInput(
                         controller: pathController,
                         placeholder: 'Path to scan',
-                        leading: const m.Icon(m.Icons.folder_outlined),
+                        leading: const m.Icon(LucideIcons.folder),
                         enabled: !scanning,
                         onChanged: onPathChanged,
                       ),
@@ -365,7 +373,7 @@ class _ImportIdleView extends StatelessWidget {
                     AlembicToolbarButton(
                       onPressed: scanning ? null : onBrowse,
                       label: 'Browse...',
-                      leadingIcon: m.Icons.folder_open,
+                      leadingIcon: LucideIcons.folderOpen,
                     ),
                   ],
                 ),
@@ -376,7 +384,7 @@ class _ImportIdleView extends StatelessWidget {
                   AlembicToolbarButton(
                     onPressed: canScan ? onScan : null,
                     label: 'Scan Folder',
-                    leadingIcon: m.Icons.search,
+                    leadingIcon: LucideIcons.search,
                     prominent: true,
                   ),
                 if (error != null) ...<Widget>[
@@ -577,14 +585,14 @@ class _ImportResultsHeader extends StatelessWidget {
         AlembicToolbarButton(
           onPressed: onChangeFolder,
           label: 'Change Folder',
-          leadingIcon: m.Icons.folder_open,
+          leadingIcon: LucideIcons.folderOpen,
           compact: true,
         ),
         const Gap(AlembicShadcnTokens.gapSm),
         AlembicToolbarButton(
           onPressed: onRescan,
           label: 'Rescan',
-          leadingIcon: m.Icons.refresh,
+          leadingIcon: LucideIcons.refreshCw,
           compact: true,
         ),
       ],
@@ -616,7 +624,7 @@ class _ImportFilterRow extends StatelessWidget {
             child: AlembicTextInput(
               controller: filterController,
               placeholder: 'Filter by owner, name, path, or remote',
-              leading: const m.Icon(m.Icons.search),
+              leading: const m.Icon(LucideIcons.search),
               onChanged: onFilterChanged,
             ),
           ),
@@ -683,7 +691,7 @@ class _ImportNoMatchesRow extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           m.Icon(
-            m.Icons.inbox_outlined,
+            LucideIcons.inbox,
             size: 28,
             color: theme.colorScheme.mutedForeground,
           ),
@@ -715,29 +723,30 @@ class _ImportRepoRow extends StatelessWidget {
   Widget build(BuildContext context) {
     ThemeData theme = Theme.of(context);
     return MouseRegion(
-      cursor: SystemMouseCursors.click,
+      cursor:
+          repo.isGitHub ? SystemMouseCursors.click : SystemMouseCursors.basic,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: onToggle,
+        onTap: repo.isGitHub ? onToggle : null,
         child: Container(
           padding: AlembicShadcnTokens.rowPadding,
           decoration: BoxDecoration(
             color: selected
-                ? theme.colorScheme.primary.withValues(alpha: 0.08)
-                : m.Colors.transparent,
+                ? theme.colorScheme.ring.withValues(alpha: 0.08)
+                : const Color(0x00000000),
             borderRadius:
                 BorderRadius.circular(AlembicShadcnTokens.controlRadius),
             border: Border.all(
               color: selected
-                  ? theme.colorScheme.primary.withValues(alpha: 0.24)
-                  : m.Colors.transparent,
+                  ? theme.colorScheme.ring.withValues(alpha: 0.24)
+                  : const Color(0x00000000),
             ),
           ),
           child: Row(
             children: <Widget>[
               AlembicSelectionToggle(
                 selected: selected,
-                onChanged: (_) => onToggle(),
+                onChanged: repo.isGitHub ? (_) => onToggle() : null,
                 label: 'Select repository',
               ),
               const Gap(AlembicShadcnTokens.gapMd),
@@ -745,7 +754,7 @@ class _ImportRepoRow extends StatelessWidget {
                 repo.isGitHub ? Icons.github_logo : Icons.circle_dashed,
                 size: 18,
                 color: repo.isGitHub
-                    ? theme.colorScheme.primary
+                    ? theme.colorScheme.ring
                     : theme.colorScheme.mutedForeground,
               ),
               const Gap(AlembicShadcnTokens.gapMd),
@@ -754,7 +763,7 @@ class _ImportRepoRow extends StatelessWidget {
               ),
               if (!repo.isGitHub) ...<Widget>[
                 const Gap(AlembicShadcnTokens.gapMd),
-                const AlembicBadge(label: 'Not GitHub'),
+                const AlembicBadge(label: 'GitHub origin required'),
               ],
             ],
           ),
@@ -853,7 +862,7 @@ class _ImportWarningRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           m.Icon(
-            m.Icons.warning_amber_rounded,
+            LucideIcons.triangleAlert,
             size: 16,
             color: theme.colorScheme.destructive,
           ),
@@ -904,9 +913,7 @@ class _ImportFooter extends StatelessWidget {
         const Gap(AlembicShadcnTokens.gapMd),
         if (message != null) ...<Widget>[
           m.Icon(
-            statusIsError
-                ? m.Icons.error_outline
-                : m.Icons.check_circle_outline,
+            statusIsError ? LucideIcons.circleAlert : LucideIcons.circleCheck,
             size: 16,
             color: statusIsError
                 ? theme.colorScheme.destructive
@@ -931,7 +938,7 @@ class _ImportFooter extends StatelessWidget {
         AlembicToolbarButton(
           onPressed: onImport,
           label: 'Import $selectedCount Selected',
-          leadingIcon: m.Icons.download,
+          leadingIcon: LucideIcons.download,
           prominent: true,
           busy: importing,
         ),
@@ -977,7 +984,7 @@ class _ImportWorkspaceToggle extends StatelessWidget {
 }
 
 extension _DiscoveredRepoSelection on DiscoveredRepo {
-  String get selectionKey => slug ?? absolutePath;
+  String get selectionKey => absolutePath;
 
   String get filterHaystack =>
       '${slug ?? ''}|$relativePath|$absolutePath|${remoteUrl ?? ''}'

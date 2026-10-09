@@ -63,7 +63,7 @@ Future<ProcessResult> _runGenerator(String distPath, String version) {
       '--version',
       version,
       '--repository',
-      'ArcaneArts/alembic',
+      'TimeZone-LLC/Alembic',
       '--tag',
       'v$version',
       '--published-at',

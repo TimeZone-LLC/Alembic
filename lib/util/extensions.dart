@@ -2,27 +2,7 @@ import 'dart:io';
 
 import 'package:alembic/main.dart';
 import 'package:alembic/platform/desktop_platform_adapter.dart';
-import 'package:fast_log/fast_log.dart';
-import 'package:github/github.dart';
 import 'package:path/path.dart' as p;
-
-extension XSearchFilterRepo on List<Repository> {
-  List<Repository> filterBy(String? query) {
-    final String normalizedQuery = (query ?? '').trim().toLowerCase();
-    if (normalizedQuery.isEmpty) {
-      return this;
-    }
-
-    return where((Repository repository) {
-      final String name = repository.name.toLowerCase();
-      final String fullName = repository.fullName.toLowerCase();
-      final String owner = (repository.owner?.login ?? '').toLowerCase();
-      return name.contains(normalizedQuery) ||
-          fullName.contains(normalizedQuery) ||
-          owner.contains(normalizedQuery);
-    }).toList();
-  }
-}
 
 enum ApplicationTool {
   vscode,
@@ -39,15 +19,6 @@ extension XApplicationTool on ApplicationTool {
         ApplicationTool.xcode => 'Xcode',
       };
 
-  String? get help => switch (this) {
-        ApplicationTool.intellij => 'Install via JetBrains Toolbox',
-        ApplicationTool.vscode =>
-          'Open Command Palette and install the `code` CLI command',
-        ApplicationTool.zed =>
-          'In Zed, run `CLI: Install zed CLI command` from Command Palette',
-        ApplicationTool.xcode => 'Works out of the box on macOS',
-      };
-
   bool get supportedOnCurrentPlatform {
     if (this == ApplicationTool.xcode) {
       return DesktopPlatformAdapter.instance.isMacOS;
@@ -61,8 +32,9 @@ extension XApplicationTool on ApplicationTool {
     }).toList();
   }
 
-  Future<void> launch(String path) async {
+  Future<void> launch(String path, {CommandRunner commandRunner = cmd}) async {
     await _launchCandidates(
+      commandRunner: commandRunner,
       commands: <String>[
         ...switch (this) {
           ApplicationTool.vscode => <String>['code', 'code.cmd'],
@@ -135,8 +107,9 @@ extension XGitTool on GitTool {
     }).toList();
   }
 
-  Future<void> launch(String path) async {
+  Future<void> launch(String path, {CommandRunner commandRunner = cmd}) async {
     await _launchCandidates(
+      commandRunner: commandRunner,
       commands: <String>[
         ...switch (this) {
           GitTool.githubDesktop => <String>[
@@ -212,10 +185,11 @@ List<String> _windowsProgramCandidates(List<String> relativePaths) {
 Future<void> _launchCandidates({
   required List<String> commands,
   required List<String> args,
+  required CommandRunner commandRunner,
 }) async {
   int lastExitCode = -1;
   for (final String command in commands) {
-    final int exitCode = await cmd(command, args);
+    final int exitCode = await commandRunner(command, args);
     lastExitCode = exitCode;
     if (exitCode == 0) {
       return;
@@ -223,7 +197,7 @@ Future<void> _launchCandidates({
   }
 
   if (lastExitCode != 0) {
-    error(
+    throw Exception(
       'Unable to launch external tool. Tried candidates: '
       '${commands.join(", ")}. Ensure the tool is installed or available on PATH.',
     );

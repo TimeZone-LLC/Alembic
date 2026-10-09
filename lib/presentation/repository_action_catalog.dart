@@ -1,7 +1,7 @@
+import 'package:arcane/arcane.dart' show LucideIcons;
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/presentation/repository_action_model.dart';
 import 'package:alembic/widget/repository_tile_actions.dart';
-import 'package:flutter/material.dart' as m;
 
 class RepositoryActionCatalog {
   const RepositoryActionCatalog._();
@@ -13,7 +13,7 @@ class RepositoryActionCatalog {
               action: RepositoryTileAction.pull,
               label: 'Pull latest changes',
               description: 'Run `git pull` in the active workspace repository.',
-              icon: m.Icons.sync,
+              icon: LucideIcons.refreshCw,
               prominent: true,
             ),
             const RepositoryActionModel(
@@ -21,13 +21,13 @@ class RepositoryActionCatalog {
               label: 'Archive repository',
               description:
                   'Compress the local repository into Alembic archive storage.',
-              icon: m.Icons.archive_outlined,
+              icon: LucideIcons.archive,
             ),
             const RepositoryActionModel(
               action: RepositoryTileAction.deleteRepository,
               label: 'Delete local repository',
               description: 'Remove the cloned workspace copy from this device.',
-              icon: m.Icons.delete_outline,
+              icon: LucideIcons.trash2,
               destructive: true,
             ),
           ],
@@ -37,7 +37,7 @@ class RepositoryActionCatalog {
               label: 'Activate archive',
               description:
                   'Restore this archived repository into the workspace.',
-              icon: m.Icons.unarchive_outlined,
+              icon: LucideIcons.archiveRestore,
               prominent: true,
             ),
             const RepositoryActionModel(
@@ -45,14 +45,14 @@ class RepositoryActionCatalog {
               label: 'Refresh archive',
               description:
                   'Restore, pull, and recompress the archive snapshot.',
-              icon: m.Icons.sync,
+              icon: LucideIcons.refreshCw,
             ),
             const RepositoryActionModel(
               action: RepositoryTileAction.deleteArchive,
               label: 'Delete archive',
               description:
                   'Remove the stored archive snapshot from local storage.',
-              icon: m.Icons.delete_outline,
+              icon: LucideIcons.trash2,
               destructive: true,
             ),
           ],
@@ -62,7 +62,7 @@ class RepositoryActionCatalog {
               label: 'Clone repository',
               description:
                   'Clone this repository into the configured workspace.',
-              icon: m.Icons.add_link,
+              icon: LucideIcons.link,
               prominent: true,
             ),
             const RepositoryActionModel(
@@ -70,7 +70,7 @@ class RepositoryActionCatalog {
               label: 'Archive from cloud',
               description:
                   'Clone the repository, then archive it without keeping a working copy.',
-              icon: m.Icons.archive_outlined,
+              icon: LucideIcons.archive,
             ),
           ],
       };
@@ -85,14 +85,14 @@ class RepositoryActionCatalog {
           action: RepositoryTileAction.details,
           label: 'Repository details',
           description: 'Open the repository detail summary dialog.',
-          icon: m.Icons.info_outline,
+          icon: LucideIcons.info,
         ),
         const RepositoryActionModel(
           action: RepositoryTileAction.changeAuth,
           label: 'Change authentication',
           description:
               'Pick the GitHub account, public HTTPS, or SSH key for this repository.',
-          icon: m.Icons.vpn_key_outlined,
+          icon: LucideIcons.keyRound,
         ),
         if (includeExplorer)
           RepositoryActionModel(
@@ -100,44 +100,44 @@ class RepositoryActionCatalog {
             label: 'Open in $explorerName',
             description:
                 'Reveal the active working copy in the system file browser.',
-            icon: m.Icons.folder_open,
+            icon: LucideIcons.folderOpen,
           ),
         const RepositoryActionModel(
           action: RepositoryTileAction.settings,
           label: 'Repository settings',
           description:
               'Configure repository-specific editor, Git client, and path overrides.',
-          icon: m.Icons.tune,
+          icon: LucideIcons.slidersHorizontal,
         ),
         const RepositoryActionModel(
           action: RepositoryTileAction.viewGithub,
           label: 'View on GitHub',
           description: 'Open the main repository page in the browser.',
-          icon: m.Icons.open_in_new,
+          icon: LucideIcons.externalLink,
         ),
         const RepositoryActionModel(
           action: RepositoryTileAction.issues,
           label: 'Issues',
           description: 'Open the issues list for this repository.',
-          icon: m.Icons.report_problem_outlined,
+          icon: LucideIcons.triangleAlert,
         ),
         const RepositoryActionModel(
           action: RepositoryTileAction.pullRequests,
           label: 'Pull requests',
           description: 'Open the pull request list for this repository.',
-          icon: m.Icons.account_tree_outlined,
+          icon: LucideIcons.gitBranch,
         ),
         const RepositoryActionModel(
           action: RepositoryTileAction.newIssue,
           label: 'New issue',
           description: 'Open the GitHub new issue flow.',
-          icon: m.Icons.add_circle_outline,
+          icon: LucideIcons.circlePlus,
         ),
         const RepositoryActionModel(
           action: RepositoryTileAction.newPullRequest,
           label: 'New pull request',
           description: 'Open the GitHub compare view to start a pull request.',
-          icon: m.Icons.add_task,
+          icon: LucideIcons.listChecks,
         ),
         if (canFork)
           const RepositoryActionModel(
@@ -145,7 +145,7 @@ class RepositoryActionCatalog {
             label: 'Fork and clone',
             description:
                 'Create a fork in your account and clone it into the workspace.',
-            icon: m.Icons.call_split,
+            icon: LucideIcons.gitFork,
           ),
       ];
 
@@ -158,26 +158,26 @@ class RepositoryActionCatalog {
           action: RepositoryTileAction.settings,
           label: 'Repository settings',
           description: '',
-          icon: m.Icons.tune,
+          icon: LucideIcons.slidersHorizontal,
         ),
         const RepositoryActionModel(
           action: RepositoryTileAction.changeAuth,
           label: 'Change authentication',
           description: '',
-          icon: m.Icons.vpn_key_outlined,
+          icon: LucideIcons.keyRound,
         ),
         const RepositoryActionModel(
           action: RepositoryTileAction.details,
           label: 'Repository details',
           description: '',
-          icon: m.Icons.info_outline,
+          icon: LucideIcons.info,
         ),
         if (includeExplorer)
           RepositoryActionModel(
             action: RepositoryTileAction.openFinder,
             label: 'Open in $explorerName',
             description: '',
-            icon: m.Icons.folder_open,
+            icon: LucideIcons.folderOpen,
           ),
       ];
 
@@ -187,19 +187,19 @@ class RepositoryActionCatalog {
           action: RepositoryTileAction.viewGithub,
           label: 'View on GitHub',
           description: '',
-          icon: m.Icons.open_in_new,
+          icon: LucideIcons.externalLink,
         ),
         RepositoryActionModel(
           action: RepositoryTileAction.pullRequests,
           label: 'Pull requests',
           description: '',
-          icon: m.Icons.account_tree_outlined,
+          icon: LucideIcons.gitBranch,
         ),
         RepositoryActionModel(
           action: RepositoryTileAction.issues,
           label: 'Issues',
           description: '',
-          icon: m.Icons.report_problem_outlined,
+          icon: LucideIcons.triangleAlert,
         ),
       ];
 
@@ -215,7 +215,7 @@ class RepositoryActionCatalog {
         label: 'Enroll in Archive Master',
         description:
             'Maintain a managed mirror that pulls automatically on a schedule.',
-        icon: m.Icons.cloud_sync_outlined,
+        icon: LucideIcons.cloudDownload,
       ));
     } else {
       actions.add(const RepositoryActionModel(
@@ -223,7 +223,7 @@ class RepositoryActionCatalog {
         label: 'Refresh archive master',
         description:
             'Force a clone or pull of the managed archive master mirror.',
-        icon: m.Icons.refresh,
+        icon: LucideIcons.refreshCw,
       ));
       if (hasMasterClone && !isActive) {
         actions.add(const RepositoryActionModel(
@@ -231,7 +231,7 @@ class RepositoryActionCatalog {
           label: 'Promote to workspace',
           description:
               'Move the managed mirror into the workspace as the active checkout.',
-          icon: m.Icons.upgrade,
+          icon: LucideIcons.arrowUp,
         ));
       }
       actions.add(const RepositoryActionModel(
@@ -239,7 +239,7 @@ class RepositoryActionCatalog {
         label: 'Remove from Archive Master',
         description:
             'Stop tracking this repository and delete the managed mirror.',
-        icon: m.Icons.cancel_outlined,
+        icon: LucideIcons.circleX,
         destructive: true,
       ));
     }

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:alembic/bloc/repository_list_store.dart';
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/diagnostics.dart';
+import 'package:alembic/core/repo_import_scanner.dart';
 import 'package:alembic/core/repository_runtime.dart';
 import 'package:alembic/domain/repository_list_status.dart';
 import 'package:alembic/util/archive_master.dart';
@@ -263,7 +264,7 @@ class RepositoryActionsController {
 
   Future<WorkspaceOperationResult> importDiscovered({
     required String rootPath,
-    required List<String> selectedSlugs,
+    required List<DiscoveredRepo> repositories,
     required bool setWorkspaceToRoot,
   }) async {
     if (rootPath.trim().isEmpty) {
@@ -277,6 +278,32 @@ class RepositoryActionsController {
         return WorkspaceOperationResult.failure('Root path does not exist');
       }
 
+      if (repositories.isEmpty) {
+        return WorkspaceOperationResult.failure(
+            'Select at least one GitHub repository.');
+      }
+      final Set<String> importedNames = <String>{};
+      for (final DiscoveredRepo repository in repositories) {
+        final String? slug = repository.slug;
+        if (!repository.isGitHub ||
+            slug == null ||
+            parseRepositoryRef(slug) == null) {
+          return WorkspaceOperationResult.failure(
+            'Only repositories with a GitHub origin can be imported: ${repository.relativePath}',
+          );
+        }
+        if (!importedNames.add(slug.toLowerCase())) {
+          return WorkspaceOperationResult.failure(
+            'Select one checkout per repository: $slug',
+          );
+        }
+        if (!await Directory('${repository.absolutePath}/.git').exists()) {
+          return WorkspaceOperationResult.failure(
+            'Git checkout no longer exists: ${repository.absolutePath}',
+          );
+        }
+      }
+
       if (setWorkspaceToRoot) {
         AlembicConfig current = config;
         current.workspaceDirectory = rootPath;
@@ -285,19 +312,18 @@ class RepositoryActionsController {
             _logTag, 'workspace directory updated to $rootPath');
       }
 
-      int catalogued = 0;
-      for (String slug in selectedSlugs) {
-        RepositoryRef? ref = parseRepositoryRef(slug);
-        if (ref == null) {
-          _diagnostics.warn(_logTag, 'skipping unparsable slug: $slug');
-          continue;
-        }
+      for (final DiscoveredRepo repository in repositories) {
+        final RepositoryRef ref = parseRepositoryRef(repository.slug!)!;
+        final AlembicRepoConfig settings =
+            getRepoConfigByFullName(ref.fullName);
+        settings.checkoutPath =
+            Directory(repository.absolutePath).absolute.path;
+        await persistRepoConfigByFullName(ref.fullName, settings);
         await addManualRepoRef(ref);
-        catalogued += 1;
       }
       _diagnostics.log(
         _logTag,
-        'importDiscovered: catalogued $catalogued of ${selectedSlugs.length} slug(s)',
+        'importDiscovered: catalogued ${repositories.length} repositories',
       );
 
       unawaited(_store.refresh());

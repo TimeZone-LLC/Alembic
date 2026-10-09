@@ -1,7 +1,7 @@
 import 'package:alembic/screen/home/home_actions.dart';
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:arcane/arcane.dart';
-import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart' as m;
 
 class HomeActionTile extends StatelessWidget {
   final String label;
@@ -20,23 +20,15 @@ class HomeActionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     ThemeData theme = Theme.of(context);
-    Color background =
-        prominent ? theme.colorScheme.secondary : theme.colorScheme.background;
-    Color border = theme.colorScheme.border;
     Color titleColor = theme.colorScheme.foreground;
 
-    return m.InkWell(
-      onTap: onPressed,
-      canRequestFocus: false,
-      borderRadius: BorderRadius.circular(AlembicShadcnTokens.controlRadius),
-      child: Container(
+    return Button(
+      onPressed: onPressed,
+      style: prominent
+          ? const ButtonStyle.secondary()
+          : const ButtonStyle.outline(),
+      child: Padding(
         padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: background,
-          borderRadius:
-              BorderRadius.circular(AlembicShadcnTokens.controlRadius),
-          border: Border.all(color: border),
-        ),
         child: Row(
           children: <Widget>[
             Expanded(
@@ -63,8 +55,8 @@ class HomeActionTile extends StatelessWidget {
               ),
             ),
             const Gap(AlembicShadcnTokens.gapMd),
-            m.Icon(
-              m.Icons.arrow_forward,
+            Icon(
+              LucideIcons.chevronRight,
               size: 16,
               color: titleColor,
             ),
@@ -122,7 +114,7 @@ class HomeSidebarEmptyState extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             m.Icon(
-              m.Icons.search_off,
+              LucideIcons.searchX,
               size: 28,
               color: theme.colorScheme.mutedForeground,
             ),

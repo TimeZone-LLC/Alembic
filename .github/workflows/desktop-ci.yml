@@ -147,6 +147,11 @@ jobs:
           restore-keys: |
             windows-build-${{ runner.os }}-
 
+      - name: Verify Windows updater
+        run: |
+          flutter pub get
+          flutter test test/platform/windows_update_scripts_test.dart
+
       - name: Build Windows app
         shell: pwsh
         env:
