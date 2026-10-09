@@ -5,10 +5,13 @@ import 'package:alembic/app/alembic_theme.dart';
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/repository_runtime.dart';
 import 'package:alembic/core/repository_library_service.dart';
+import 'package:alembic/core/git_activity_service.dart';
+import 'package:alembic/screen/home/home_repository_metadata.dart';
 import 'package:alembic/domain/repository_dto.dart';
 import 'package:alembic/main.dart' as app;
 import 'package:alembic/screen/home/home_repository_browser.dart';
 import 'package:alembic/screen/home/home_sidebar.dart';
+import 'package:alembic/widget/repository_activity_chart.dart';
 import 'package:alembic/screen/home/home_top_bar.dart';
 import 'package:alembic/screen/home/home_view_filters.dart';
 import 'package:alembic/ui/alembic_ui.dart';
@@ -74,7 +77,7 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  for (final double width in <double>[420, 600, 920, 1380]) {
+  for (final double width in <double>[420, 600, 920, 1080, 1380]) {
     for (final ThemeMode mode in <ThemeMode>[ThemeMode.light, ThemeMode.dark]) {
       for (final double textScale in <double>[1, 2]) {
         testWidgets(
@@ -90,6 +93,11 @@ void main() {
               textScale: textScale,
               capture: capture);
           expect(tester.takeException(), isNull);
+          expect(
+              find.byType(RepositoryActivityChart),
+              width >= 1080 && textScale == 1
+                  ? findsNWidgets(3)
+                  : findsNothing);
           expect(find.byType(HomeSidebar),
               width >= 820 ? findsOneWidget : findsNothing);
           expect(find.byType(HomeTopBar), findsOneWidget);
@@ -367,6 +375,7 @@ Future<void> _pumpShell(
                                   canForkRepository: (_) => true,
                                   onPrimaryAction: (_) async {},
                                   onRepositoryAction: (_, __) async {},
+                                  metadataCache: controller.metadata,
                                   library: controller.library,
                                   onTogglePin: (_) async =>
                                       controller.record('Pin'),
@@ -396,6 +405,23 @@ Future<void> _pumpShell(
 }
 
 class _ShellController {
+  final HomeRepositoryMetadataCache metadata = HomeRepositoryMetadataCache(
+    readGitActivity: (String path, {bool force = false}) async =>
+        GitActivitySnapshot(
+            state: GitActivityState.ready,
+            dailyCommits: List<int>.generate(
+                30,
+                (int day) => path.endsWith('local-tools')
+                    ? (day % 5 == 0 ? 4 : 0)
+                    : (day % 4 == 0
+                        ? 2
+                        : day % 7 == 0
+                            ? 1
+                            : 0)),
+            startDay: DateTime.utc(2026, 9, 10),
+            endDay: DateTime.utc(2026, 10, 9),
+            checkedAt: DateTime.utc(2026, 10, 9)),
+  );
   final RepositoryLibrarySnapshot library = RepositoryLibrarySnapshot(
     pinnedRepositoryNames: <String>['TestFixtures/local-workspace'],
     groups: <RepositoryGroup>[

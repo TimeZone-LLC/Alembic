@@ -114,7 +114,7 @@ class _HomeRepositoryBrowserPaneState extends State<HomeRepositoryBrowserPane> {
       for (final MapEntry<String, m.GlobalKey> entry in _rowKeys.entries)
         if (entry.value.currentContext != null) entry.key,
     };
-    if (_metadataCache.refreshGitStatus(mountedNames) && mounted) {
+    if (_metadataCache.refreshVisibleGitMetadata(mountedNames) && mounted) {
       setState(() {});
     }
   }
@@ -565,6 +565,9 @@ class _RepositoryList extends StatelessWidget {
                       ),
                       revision: revision,
                       includeGitStatus: entry.repoState == RepoState.active,
+                      includeGitActivity: entry.repoState == RepoState.active &&
+                          HomeRepositoryRow.showsProjectContext(
+                              context, constraints.maxWidth),
                       configuration: (
                         configuration,
                         getRepoConfig(entry.repository).json,

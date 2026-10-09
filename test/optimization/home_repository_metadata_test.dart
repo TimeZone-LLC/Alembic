@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/repository_auth.dart';
 import 'package:alembic/core/git_status_service.dart';
+import 'package:alembic/core/git_activity_service.dart';
 import 'package:alembic/core/repository_runtime.dart';
 import 'package:alembic/main.dart' as app;
 import 'package:alembic/screen/home/home_repository_metadata.dart';
@@ -18,6 +19,8 @@ void main() {
   int authReads = 0;
   int masterReads = 0;
   int gitReads = 0;
+  int activityReads = 0;
+  int forcedActivityReads = 0;
   final Repository repository = Repository(
     name: 'fixture',
     fullName: 'owner/fixture',
@@ -46,6 +49,8 @@ void main() {
     authReads = 0;
     masterReads = 0;
     gitReads = 0;
+    activityReads = 0;
+    forcedActivityReads = 0;
     cache = HomeRepositoryMetadataCache(
       readAuth: (_) async {
         authReads++;
@@ -57,6 +62,16 @@ void main() {
             state: GitStatusState.ready,
             branch: 'main',
             checkedAt: DateTime.now());
+      },
+      readGitActivity: (_, {bool force = false}) async {
+        activityReads++;
+        if (force) forcedActivityReads++;
+        return GitActivitySnapshot(
+            state: GitActivityState.ready,
+            dailyCommits: List<int>.filled(30, 0),
+            startDay: DateTime.utc(2026, 9, 10),
+            endDay: DateTime.utc(2026, 10, 9),
+            checkedAt: DateTime.utc(2026, 10, 9));
       },
       readMaster: (_) async {
         masterReads++;
@@ -76,6 +91,7 @@ void main() {
     String accountId = 'account',
     String configuration = 'original',
     bool includeGitStatus = false,
+    bool includeGitActivity = false,
   }) =>
       cache.forRepository(
         repository: ArcaneRepository(
@@ -86,6 +102,7 @@ void main() {
         revision: revision,
         configuration: configuration,
         includeGitStatus: includeGitStatus,
+        includeGitActivity: includeGitActivity,
       );
 
   test('remounted rows reuse pending metadata and preserve authentication',
@@ -144,9 +161,10 @@ void main() {
 
   test('visible Git refresh preserves auth and master metadata', () async {
     final HomeRepositoryMetadata before = read(includeGitStatus: true);
-    expect(cache.refreshGitStatus(<String>{'owner/not-mounted'}), isFalse);
+    expect(cache.refreshVisibleGitMetadata(<String>{'owner/not-mounted'}),
+        isFalse);
     expect(gitReads, 1);
-    expect(cache.refreshGitStatus(<String>{'owner/fixture'}), isTrue);
+    expect(cache.refreshVisibleGitMetadata(<String>{'owner/fixture'}), isTrue);
     final HomeRepositoryMetadata after = read(includeGitStatus: true);
     expect(after.authInfo, same(before.authInfo));
     expect(after.hasMasterClone, same(before.hasMasterClone));
@@ -154,6 +172,29 @@ void main() {
     expect(authReads, 1);
     expect(masterReads, 1);
     expect(gitReads, 2);
+  });
+
+  test(
+      'activity futures survive remounts and refresh through the service cache',
+      () async {
+    expect(read().gitActivity, isNull);
+    expect(activityReads, 0);
+    final HomeRepositoryMetadata first =
+        read(includeGitStatus: true, includeGitActivity: true);
+    expect(read(includeGitStatus: true, includeGitActivity: true).gitActivity,
+        same(first.gitActivity));
+    expect(activityReads, 1);
+    cache.refreshVisibleGitMetadata(<String>{'owner/fixture'});
+    final HomeRepositoryMetadata updated =
+        read(includeGitStatus: true, includeGitActivity: true);
+    expect(updated.authInfo, same(first.authInfo));
+    expect(updated.hasMasterClone, same(first.hasMasterClone));
+    expect((await updated.gitActivity!).totalCommits, 0);
+    expect(activityReads, 2);
+    expect(forcedActivityReads, 0);
+    expect(authReads, 2);
+    expect(read().gitActivity, isNull);
+    expect(activityReads, 2);
   });
 
   test('removed repositories release cached metadata', () {

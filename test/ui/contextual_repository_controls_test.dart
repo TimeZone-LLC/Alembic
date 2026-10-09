@@ -5,6 +5,8 @@ import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/repository_runtime.dart';
 import 'package:alembic/core/repository_auth.dart';
 import 'package:alembic/core/git_status_service.dart';
+import 'package:alembic/core/git_activity_service.dart';
+import 'package:alembic/widget/repository_activity_chart.dart';
 import 'package:alembic/screen/home/home_repository_metadata.dart';
 import 'package:alembic/domain/repository_dto.dart';
 import 'package:alembic/main.dart' as app;
@@ -59,10 +61,11 @@ void main() {
     WidgetTester tester, {
     List<HomeRepositoryEntry>? repositories,
     double textScale = 1,
+    double width = 1000,
     HomeRepositoryMetadataCache? metadataCache,
   }) async {
     final List<HomeRepositoryEntry> browserEntries = repositories ?? entries;
-    await tester.binding.setSurfaceSize(const Size(1000, 700));
+    await tester.binding.setSurfaceSize(Size(width, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(ArcaneApp(
       theme: buildAlembicTheme(),
@@ -272,6 +275,47 @@ void main() {
     expect(gitReads, initialReads * 2);
     expect(authReads, initialReads);
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('wide rows show cached activity without moving on hover',
+      (WidgetTester tester) async {
+    int activityReads = 0;
+    final HomeRepositoryMetadataCache cache = HomeRepositoryMetadataCache(
+      readMaster: (_) async => false,
+      readGitActivity: (_, {bool force = false}) async {
+        activityReads++;
+        return GitActivitySnapshot(
+            state: GitActivityState.ready,
+            dailyCommits:
+                List<int>.generate(30, (int day) => day % 6 == 0 ? 2 : 0),
+            startDay: DateTime.utc(2026, 9, 10),
+            endDay: DateTime.utc(2026, 10, 9),
+            checkedAt: DateTime.utc(2026, 10, 9));
+      },
+    );
+    await pumpBrowser(tester, width: 1200, metadataCache: cache);
+    expect(find.byType(RepositoryActivityChart), findsOneWidget);
+    expect(activityReads, 1);
+    final Offset chartLocation =
+        tester.getTopLeft(find.byType(RepositoryActivityChart));
+    final TestGesture mouse =
+        await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(1, 1));
+    addTearDown(mouse.removePointer);
+    await mouse.moveTo(tester.getCenter(find.byType(HomeRepositoryRow).first));
+    await tester.pumpAndSettle();
+    expect(
+        tester.getTopLeft(find.byType(RepositoryActivityChart)), chartLocation);
+    expect(activityReads, 1);
+    await tester.tap(find.byType(RepositoryActivityChart));
+    await tester.pumpAndSettle();
+    expect(find.text('Deselect all'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await pumpBrowser(tester, width: 700, metadataCache: cache);
+    expect(find.byType(RepositoryActivityChart), findsNothing);
+    expect(activityReads, 1);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

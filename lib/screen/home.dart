@@ -5,6 +5,7 @@ import 'package:alembic/bloc/repository_list_store.dart';
 import 'package:alembic/core/account_registry.dart';
 import 'package:alembic/core/repository_library_service.dart';
 import 'package:alembic/core/git_status_service.dart';
+import 'package:alembic/core/git_activity_service.dart';
 import 'package:alembic/screen/home/repository_library_dialog.dart';
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/archive_master_service.dart';
@@ -239,10 +240,11 @@ class _AlembicHomeState extends State<AlembicHome> {
     }
   }
 
-  void _invalidateGitStatus() {
+  void _invalidateGitMetadata() {
     for (final Repository repository in widget.store.cachedRepositories) {
-      GitStatusService.instance
-          .invalidate(_controller.repositoryFor(repository).repoPath);
+      final String path = _controller.repositoryFor(repository).repoPath;
+      GitStatusService.instance.invalidate(path);
+      GitActivityService.instance.invalidate(path);
     }
     _revision++;
   }
@@ -432,13 +434,13 @@ class _AlembicHomeState extends State<AlembicHome> {
   }
 
   Future<void> _refreshRepositories() async {
-    _invalidateGitStatus();
+    _invalidateGitMetadata();
     unawaited(widget.scanService.rescan());
     await widget.store.refresh();
   }
 
   Future<void> _afterMutation() async {
-    _invalidateGitStatus();
+    _invalidateGitMetadata();
     await widget.scanService.rescan();
   }
 

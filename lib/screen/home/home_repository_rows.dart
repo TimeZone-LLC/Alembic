@@ -1,6 +1,8 @@
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/repository_auth.dart';
 import 'package:alembic/core/git_status_service.dart';
+import 'package:alembic/core/git_activity_service.dart';
+import 'package:alembic/widget/repository_activity_chart.dart';
 import 'package:alembic/widget/repository_git_status.dart';
 import 'package:alembic/core/repository_runtime.dart';
 import 'package:alembic/platform/desktop_platform_adapter.dart';
@@ -110,6 +112,9 @@ class HomeRepositoryMenu {
 }
 
 class HomeRepositoryRow extends StatefulWidget {
+  static bool showsProjectContext(BuildContext context, double width) =>
+      width >= 820 && MediaQuery.textScalerOf(context).scale(14) <= 16.8;
+
   final HomeRepositoryEntry entry;
   final RepositoryRuntime runtime;
   final int revision;
@@ -360,6 +365,9 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
                   builder: (BuildContext context, BoxConstraints constraints) {
                     final bool compact = constraints.maxWidth < 460;
                     final bool narrow = constraints.maxWidth < 720;
+                    final bool showContext =
+                        HomeRepositoryRow.showsProjectContext(
+                            context, constraints.maxWidth);
                     final Widget actions = _RowTrailing(
                       work: activeWork,
                       controlsVisible: !busy && (reveal || _selected),
@@ -463,23 +471,52 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
                                           )
                                         : identity,
                                   ),
-                                  if (widget.onTogglePin != null &&
-                                      (widget.pinned ||
-                                          reveal ||
-                                          _selected)) ...<Widget>[
-                                    const Gap(4),
-                                    AlembicToolbarButton(
-                                      label: widget.pinned
-                                          ? 'Unpin repository'
-                                          : 'Pin repository',
-                                      leadingIcon: widget.pinned
-                                          ? LucideIcons.pinOff
-                                          : LucideIcons.pin,
-                                      iconOnly: true,
-                                      compact: true,
-                                      quiet: true,
-                                      onPressed: widget.onTogglePin,
+                                  if (showContext) ...<Widget>[
+                                    const Gap(24),
+                                    SizedBox(
+                                      width: (constraints.maxWidth * 0.28)
+                                          .clamp(220, 330),
+                                      child: Listener(
+                                        behavior: HitTestBehavior.opaque,
+                                        onPointerDown:
+                                            (PointerDownEvent event) {
+                                          if (event.buttons & kPrimaryButton !=
+                                              0) {
+                                            widget.onSelect?.call();
+                                          }
+                                        },
+                                        child: GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onDoubleTap: () => widget
+                                              .onShowDetails(widget.entry),
+                                          child: _RowProjectContext(
+                                              entry: widget.entry,
+                                              activity:
+                                                  widget.metadata.gitActivity),
+                                        ),
+                                      ),
                                     ),
+                                  ],
+                                  if (widget.onTogglePin != null) ...<Widget>[
+                                    const Gap(4),
+                                    SizedBox(
+                                        width: 32,
+                                        child: (widget.pinned ||
+                                                reveal ||
+                                                _selected)
+                                            ? AlembicToolbarButton(
+                                                label: widget.pinned
+                                                    ? 'Unpin repository'
+                                                    : 'Pin repository',
+                                                leadingIcon: widget.pinned
+                                                    ? LucideIcons.pinOff
+                                                    : LucideIcons.pin,
+                                                iconOnly: true,
+                                                compact: true,
+                                                quiet: true,
+                                                onPressed: widget.onTogglePin,
+                                              )
+                                            : const SizedBox.shrink()),
                                   ],
                                   if (!compact) ...<Widget>[
                                     const Gap(20),
@@ -513,6 +550,54 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
         ),
       ),
     );
+  }
+}
+
+class _RowProjectContext extends StatelessWidget {
+  final HomeRepositoryEntry entry;
+  final Future<GitActivitySnapshot>? activity;
+
+  const _RowProjectContext({required this.entry, required this.activity});
+
+  @override
+  Widget build(BuildContext context) {
+    if (activity != null) {
+      return RepaintBoundary(
+          child: FutureBuilder<GitActivitySnapshot>(
+        future: activity,
+        builder: (BuildContext context,
+                AsyncSnapshot<GitActivitySnapshot> snapshot) =>
+            RepositoryActivityChart(
+                snapshot: snapshot.data, error: snapshot.error?.toString()),
+      ));
+    }
+    final ThemeData theme = Theme.of(context);
+    final String? description = entry.dto.description.cleanedDescription;
+    final List<String> details = <String>[
+      if (entry.dto.language?.trim().isNotEmpty == true) entry.dto.language!,
+      if (entry.dto.starCount > 0)
+        '${entry.dto.starCount} ${entry.dto.starCount == 1 ? 'star' : 'stars'}',
+      if (entry.dto.forkCount > 0)
+        '${entry.dto.forkCount} ${entry.dto.forkCount == 1 ? 'fork' : 'forks'}',
+    ];
+    return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          if (description != null)
+            Text(description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.typography.xSmall.copyWith(
+                    fontSize: 12, color: theme.colorScheme.mutedForeground)),
+          if (description != null && details.isNotEmpty) const Gap(5),
+          if (details.isNotEmpty)
+            Text(details.join(' · '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.typography.xSmall.copyWith(
+                    fontSize: 11, color: theme.colorScheme.mutedForeground)),
+        ]);
   }
 }
 
