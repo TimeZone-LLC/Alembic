@@ -41,9 +41,13 @@ class RepositoryGitStatus extends StatelessWidget {
     );
     return value?.error == null
         ? text
-        : Tooltip(
-            tooltip: (BuildContext context) => Text(value!.error!),
-            child: text,
-          );
+        : compact
+            ? Semantics(
+                label: '$summary. ${value!.error}',
+                child: ExcludeSemantics(child: text))
+            : Tooltip(
+                tooltip: (BuildContext context) => Text(value!.error!),
+                child: text,
+              );
   }
 }

@@ -99,7 +99,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('selection controls follow hover and selected repository states',
+  testWidgets('hover keeps rows quiet and title clicks start selection',
       (WidgetTester tester) async {
     await pumpBrowser(tester);
     expect(find.text('Select all'), findsNothing);
@@ -112,8 +112,14 @@ void main() {
     final Finder local = find.byType(HomeRepositoryRow).first;
     await mouse.moveTo(tester.getCenter(local));
     await tester.pumpAndSettle();
-    expect(find.byType(AlembicSelectionToggle).hitTestable(), findsOneWidget);
-    expect(find.text('Open').hitTestable(), findsOneWidget);
+    expect(find.byType(AlembicSelectionToggle).hitTestable(), findsNothing);
+    expect(find.text('Open'), findsNothing);
+    expect(
+        find.descendant(of: local, matching: find.byType(AlembicToolbarButton)),
+        findsNothing);
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pumpAndSettle();
+    expect(find.byType(TooltipContainer), findsNothing);
     await mouse.moveTo(const Offset(1, 1));
     await tester.pumpAndSettle();
     expect(find.byType(AlembicSelectionToggle).hitTestable(), findsNothing);
@@ -121,7 +127,7 @@ void main() {
     await mouse.moveTo(tester.getCenter(local));
     await tester.pumpAndSettle();
     final Offset titleBefore = tester.getTopLeft(find.text('local'));
-    await tester.tap(find.byType(AlembicSelectionToggle).first);
+    await tester.tap(find.text('local'));
     await tester.pumpAndSettle();
     expect(find.text('Select all'), findsOneWidget);
     expect(find.text('Deselect all'), findsOneWidget);
@@ -135,6 +141,22 @@ void main() {
     expect(requested.map((HomeRepositoryEntry entry) => entry.dto.name),
         <String>['remote']);
     expect(find.text('Deselect all'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('right-click Open executes the repository action',
+      (WidgetTester tester) async {
+    await pumpBrowser(tester);
+    expect(find.text('Open'), findsNothing);
+    await tester.tap(find.text('local'),
+        kind: PointerDeviceKind.mouse, buttons: kSecondaryButton);
+    await tester.pumpAndSettle();
+    expect(find.text('Open').hitTestable(), findsOneWidget);
+    await tester.tap(find.text('Open').hitTestable());
+    await tester.pumpAndSettle();
+    expect(opened, <String>['owner/local']);
+    expect(inspected, isEmpty);
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -301,12 +323,25 @@ void main() {
         tester.getRect(find.byType(RepositoryActivityChart));
     expect(chartBounds.width, greaterThan(400));
     expect(chartBounds.height, greaterThan(50));
+    final Finder local = find.byType(HomeRepositoryRow).first;
+    final Rect rowBounds = tester.getRect(local);
+    final Rect titleBounds = tester.getRect(find.text('local'));
+    expect(rowBounds.right - chartBounds.right, inInclusiveRange(12, 16));
     final TestGesture mouse =
         await tester.createGesture(kind: PointerDeviceKind.mouse);
     await mouse.addPointer(location: const Offset(1, 1));
     addTearDown(mouse.removePointer);
     await mouse.moveTo(tester.getCenter(find.byType(HomeRepositoryRow).first));
     await tester.pumpAndSettle();
+    expect(tester.getRect(find.byType(RepositoryActivityChart)), chartBounds);
+    expect(tester.getRect(local), rowBounds);
+    expect(tester.getRect(find.text('local')), titleBounds);
+    expect(find.byType(AlembicSelectionToggle).hitTestable(), findsNothing);
+    expect(find.text('Open'), findsNothing);
+    await mouse.moveTo(tester.getCenter(find.byType(RepositoryActivityChart)));
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pumpAndSettle();
+    expect(find.byType(TooltipContainer), findsNothing);
     expect(tester.getRect(find.byType(RepositoryActivityChart)), chartBounds);
     expect(activityReads, 1);
     await tester.tap(find.byType(RepositoryActivityChart));
@@ -376,7 +411,7 @@ void main() {
     addTearDown(mouse.removePointer);
     await mouse.moveTo(tester.getCenter(find.byType(HomeRepositoryRow).first));
     await tester.pumpAndSettle();
-    expect(find.text('Open').hitTestable(), findsOneWidget);
+    expect(find.text('Open'), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

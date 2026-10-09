@@ -243,7 +243,7 @@ void main() {
     ]) {
       for (final RepoState state in RepoState.values) {
         testWidgets(
-            '${state.name} repository controls fit at $width in ${theme.name}',
+            '${state.name} repository context actions fit at $width in ${theme.name}',
             (WidgetTester tester) async {
           tester.view.physicalSize = Size(width, 900);
           tester.view.devicePixelRatio = 1;
@@ -323,15 +323,13 @@ void main() {
           ));
           await tester.pumpAndSettle();
           expect(tester.takeException(), isNull);
-          final TestGesture mouse =
-              await tester.createGesture(kind: PointerDeviceKind.mouse);
-          await mouse.addPointer(location: Offset.zero);
-          addTearDown(mouse.removePointer);
-          await mouse.moveTo(tester.getCenter(find.byType(HomeRepositoryRow)));
-          await tester.pumpAndSettle();
-          await tester.tap(find.byWidgetPredicate((Widget widget) =>
-              widget is AlembicToolbarButton &&
-              widget.label == 'Repository options'));
+          expect(
+              find.byWidgetPredicate((Widget widget) =>
+                  widget is AlembicToolbarButton &&
+                  widget.label == 'Repository options'),
+              findsNothing);
+          await tester.tap(find.byType(HomeRepositoryRow),
+              kind: PointerDeviceKind.mouse, buttons: kSecondaryButton);
           await tester.pump(const Duration(milliseconds: 300));
           expect(find.text('Change authentication'), findsOneWidget);
           await tester.tap(find.text('Change authentication'));

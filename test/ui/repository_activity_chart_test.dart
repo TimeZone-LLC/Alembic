@@ -151,7 +151,7 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('hover tooltips show exact oldest and newest UTC buckets',
+  testWidgets('hover leaves activity static without popups',
       (WidgetTester tester) async {
     await _pump(tester, snapshot: _snapshot());
     final TestGesture mouse =
@@ -161,11 +161,11 @@ void main() {
     await mouse.moveTo(_dayOffset(tester, 0));
     await tester.pump(const Duration(milliseconds: 700));
     await tester.pumpAndSettle();
-    expect(find.text('2026-09-10 UTC · 1 commit'), findsOneWidget);
+    expect(find.byType(Tooltip), findsNothing);
     await mouse.moveTo(_dayOffset(tester, 29));
     await tester.pump(const Duration(milliseconds: 700));
     await tester.pumpAndSettle();
-    expect(find.text('2026-10-09 UTC · 5 commits'), findsOneWidget);
+    expect(find.byType(Tooltip), findsNothing);
   });
 
   for (final ThemeMode mode in <ThemeMode>[ThemeMode.light, ThemeMode.dark]) {
@@ -189,8 +189,9 @@ void main() {
     });
   }
 
-  testWidgets('hover keeps one painter and refreshes visible tooltip counts',
+  testWidgets('hover keeps one painter and refreshes accessible counts',
       (WidgetTester tester) async {
+    final SemanticsHandle semantics = tester.ensureSemantics();
     final ValueNotifier<GitActivitySnapshot> snapshots =
         ValueNotifier<GitActivitySnapshot>(_snapshot());
     addTearDown(snapshots.dispose);
@@ -200,7 +201,7 @@ void main() {
         find.descendant(
             of: find.byType(RepositoryActivityChart),
             matching: find.byType(Tooltip)),
-        findsOneWidget);
+        findsNothing);
     final CustomPaint painted = tester.widget<CustomPaint>(_graph());
     final TestGesture mouse =
         await tester.createGesture(kind: PointerDeviceKind.mouse);
@@ -210,13 +211,16 @@ void main() {
     await tester.pump(const Duration(milliseconds: 700));
     await tester.pumpAndSettle();
     expect(identical(tester.widget<CustomPaint>(_graph()), painted), isTrue);
-    expect(find.text('2026-09-10 UTC · 1 commit'), findsOneWidget);
+    expect(tester.getSemantics(find.byType(RepositoryActivityChart)).label,
+        contains('2026-09-10 UTC: 1 commit'));
     final List<int> counts = List<int>.filled(30, 0)..[0] = 7;
     snapshots.value = _snapshot(counts: counts);
     await tester.pump();
     await tester.pumpAndSettle();
-    expect(find.text('2026-09-10 UTC · 7 commits'), findsOneWidget);
+    expect(tester.getSemantics(find.byType(RepositoryActivityChart)).label,
+        contains('2026-09-10 UTC: 7 commits'));
     expect(tester.takeException(), isNull);
+    semantics.dispose();
   });
 
   testWidgets('future errors are shown without a ready snapshot',

@@ -3,10 +3,8 @@ import 'dart:math' as math;
 import 'package:alembic/core/git_activity_service.dart';
 import 'package:arcane/arcane.dart';
 import 'package:flutter/foundation.dart' show listEquals;
-import 'package:flutter/gestures.dart'
-    show PointerEnterEvent, PointerHoverEvent;
 
-class RepositoryActivityChart extends StatefulWidget {
+class RepositoryActivityChart extends StatelessWidget {
   final GitActivitySnapshot? snapshot;
   final String? error;
   final bool compact;
@@ -15,47 +13,15 @@ class RepositoryActivityChart extends StatefulWidget {
       {super.key, required this.snapshot, this.error, this.compact = true});
 
   @override
-  State<RepositoryActivityChart> createState() =>
-      _RepositoryActivityChartState();
-}
-
-class _RepositoryActivityChartState extends State<RepositoryActivityChart> {
-  final ValueNotifier<(GitActivitySnapshot, int)?> _hoveredDay =
-      ValueNotifier<(GitActivitySnapshot, int)?>(null);
-
-  @override
-  void didUpdateWidget(RepositoryActivityChart oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.snapshot != widget.snapshot) {
-      final GitActivitySnapshot? snapshot = widget.snapshot;
-      WidgetsBinding.instance.addPostFrameCallback((Duration _) {
-        if (!mounted || widget.snapshot != snapshot) return;
-        _hoveredDay.value = snapshot == null
-            ? null
-            : (
-                snapshot,
-                _hoveredDay.value?.$2 ?? GitActivitySnapshot.dayCount - 1
-              );
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _hoveredDay.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final GitActivitySnapshot? value = widget.snapshot;
+    final GitActivitySnapshot? value = snapshot;
     final ThemeData theme = Theme.of(context);
     final TextStyle captionStyle = theme.typography.small.copyWith(
-      fontSize: widget.compact ? 11 : 12,
+      fontSize: compact ? 11 : 12,
       color: theme.colorScheme.mutedForeground,
     );
     final String? unavailable =
-        widget.error != null || value?.state == GitActivityState.error
+        error != null || value?.state == GitActivityState.error
             ? 'Commit activity unavailable'
             : value?.state == GitActivityState.notRepository
                 ? 'No local Git history'
@@ -63,18 +29,11 @@ class _RepositoryActivityChartState extends State<RepositoryActivityChart> {
                     ? 'Reading commit activity…'
                     : null;
     if (unavailable != null) {
-      final String? details = widget.error ?? value?.error;
+      final String? details = error ?? value?.error;
       final Widget message = Text(unavailable, style: captionStyle);
       return Semantics(
         label: details == null ? unavailable : '$unavailable. $details',
-        child: ExcludeSemantics(
-            child: details == null
-                ? message
-                : Tooltip(
-                    tooltip: (BuildContext context) =>
-                        TooltipContainer(child: Text(details)),
-                    child: message,
-                  )),
+        child: ExcludeSemantics(child: message),
       );
     }
     final GitActivitySnapshot ready = value!;
@@ -123,61 +82,26 @@ class _RepositoryActivityChartState extends State<RepositoryActivityChart> {
               ]);
             }),
             const Gap(3),
-            LayoutBuilder(
-                builder: (BuildContext context, BoxConstraints constraints) {
-              void hoverAt(double x) {
-                final int day =
-                    (x / constraints.maxWidth * GitActivitySnapshot.dayCount)
-                        .floor()
-                        .clamp(0, GitActivitySnapshot.dayCount - 1);
-                _hoveredDay.value = (ready, day);
-              }
-
-              return Tooltip(
-                tooltip: (BuildContext context) =>
-                    ValueListenableBuilder<(GitActivitySnapshot, int)?>(
-                  valueListenable: _hoveredDay,
-                  builder: (BuildContext context,
-                      (GitActivitySnapshot, int)? hovered, Widget? child) {
-                    final GitActivitySnapshot snapshot = hovered?.$1 ?? ready;
-                    final int index =
-                        hovered?.$2 ?? GitActivitySnapshot.dayCount - 1;
-                    return TooltipContainer(
-                        child: Text(
-                      '${_dayLabel(snapshot.startDay.add(Duration(days: index)))} UTC · ${snapshot.dailyCommits[index]} ${_commits(snapshot.dailyCommits[index])}',
-                    ));
-                  },
-                ),
-                child: MouseRegion(
-                  onEnter: (PointerEnterEvent event) =>
-                      hoverAt(event.localPosition.dx),
-                  onHover: (PointerHoverEvent event) =>
-                      hoverAt(event.localPosition.dx),
-                  child: SizedBox(
-                      height: widget.compact ? 32 : 40,
-                      child: Stack(children: <Widget>[
-                        Positioned.fill(
-                            child: CustomPaint(
-                                key: const ValueKey<String>(
-                                    'commit-activity-bars'),
-                                painter: _CommitActivityPainter(
-                                    counts: ready.dailyCommits,
-                                    maximum: maximum,
-                                    color: theme.colorScheme.chart1))),
-                        if (maximum == 0)
-                          Align(
-                              alignment: Alignment.centerLeft,
-                              child: IgnorePointer(
-                                  child: Text(
-                                ready.unborn
-                                    ? 'No commits yet'
-                                    : 'No commits in 30 days',
-                                style: captionStyle,
-                              ))),
-                      ])),
-                ),
-              );
-            }),
+            SizedBox(
+              height: compact ? 32 : 40,
+              child: Stack(children: <Widget>[
+                Positioned.fill(
+                    child: CustomPaint(
+                        key: const ValueKey<String>('commit-activity-bars'),
+                        painter: _CommitActivityPainter(
+                            counts: ready.dailyCommits,
+                            maximum: maximum,
+                            color: theme.colorScheme.chart1))),
+                if (maximum == 0)
+                  Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                          ready.unborn
+                              ? 'No commits yet'
+                              : 'No commits in 30 days',
+                          style: captionStyle)),
+              ]),
+            ),
             const Gap(2),
             LayoutBuilder(
                 builder: (BuildContext context, BoxConstraints constraints) {
