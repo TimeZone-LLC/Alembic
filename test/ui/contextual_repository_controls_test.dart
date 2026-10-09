@@ -297,16 +297,17 @@ void main() {
     await pumpBrowser(tester, width: 1200, metadataCache: cache);
     expect(find.byType(RepositoryActivityChart), findsOneWidget);
     expect(activityReads, 1);
-    final Offset chartLocation =
-        tester.getTopLeft(find.byType(RepositoryActivityChart));
+    final Rect chartBounds =
+        tester.getRect(find.byType(RepositoryActivityChart));
+    expect(chartBounds.width, greaterThan(400));
+    expect(chartBounds.height, greaterThan(50));
     final TestGesture mouse =
         await tester.createGesture(kind: PointerDeviceKind.mouse);
     await mouse.addPointer(location: const Offset(1, 1));
     addTearDown(mouse.removePointer);
     await mouse.moveTo(tester.getCenter(find.byType(HomeRepositoryRow).first));
     await tester.pumpAndSettle();
-    expect(
-        tester.getTopLeft(find.byType(RepositoryActivityChart)), chartLocation);
+    expect(tester.getRect(find.byType(RepositoryActivityChart)), chartBounds);
     expect(activityReads, 1);
     await tester.tap(find.byType(RepositoryActivityChart));
     await tester.pumpAndSettle();

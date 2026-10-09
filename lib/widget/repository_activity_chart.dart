@@ -79,10 +79,13 @@ class _RepositoryActivityChartState extends State<RepositoryActivityChart> {
     }
     final GitActivitySnapshot ready = value!;
     final int maximum = ready.dailyCommits.fold<int>(0, math.max);
+    final int activeDays =
+        ready.dailyCommits.where((int count) => count > 0).length;
     final String summary = <String>[
       'Commit activity on the current branch',
       '${_dayLabel(ready.startDay)} through ${_dayLabel(ready.endDay)} UTC',
       '${ready.totalCommits} ${_commits(ready.totalCommits)}',
+      '$activeDays active ${activeDays == 1 ? 'day' : 'days'}',
       if (ready.shallow) 'Shallow history; older commits may be missing',
       if (ready.unborn) 'This branch has no commits yet',
       for (int index = 0; index < ready.dailyCommits.length; index++)
@@ -151,7 +154,7 @@ class _RepositoryActivityChartState extends State<RepositoryActivityChart> {
                   onHover: (PointerHoverEvent event) =>
                       hoverAt(event.localPosition.dx),
                   child: SizedBox(
-                      height: widget.compact ? 22 : 28,
+                      height: widget.compact ? 32 : 40,
                       child: Stack(children: <Widget>[
                         Positioned.fill(
                             child: CustomPaint(
@@ -175,10 +178,32 @@ class _RepositoryActivityChartState extends State<RepositoryActivityChart> {
                 ),
               );
             }),
-            if (ready.shallow) ...<Widget>[
-              const Gap(2),
-              Text('Shallow history', style: captionStyle),
-            ],
+            const Gap(2),
+            LayoutBuilder(
+                builder: (BuildContext context, BoxConstraints constraints) {
+              final TextStyle axisStyle =
+                  captionStyle.copyWith(fontSize: 11, height: 1);
+              final Widget start =
+                  Text(_shortDayLabel(ready.startDay), style: axisStyle);
+              final Widget activity = Text(
+                  ready.shallow
+                      ? 'Shallow history'
+                      : '$activeDays active ${activeDays == 1 ? 'day' : 'days'}',
+                  style: axisStyle);
+              final Widget end = Text('${_shortDayLabel(ready.endDay)} · UTC',
+                  style: axisStyle);
+              if (constraints.maxWidth /
+                      MediaQuery.textScalerOf(context).scale(1) <
+                  240) {
+                return Wrap(
+                    spacing: 12,
+                    runSpacing: 3,
+                    children: <Widget>[start, activity, end]);
+              }
+              return Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: <Widget>[start, activity, end]);
+            }),
           ],
         )));
   }
@@ -187,6 +212,23 @@ class _RepositoryActivityChartState extends State<RepositoryActivityChart> {
 String _dayLabel(DateTime day) =>
     day.toUtc().toIso8601String().substring(0, 10);
 String _commits(int count) => count == 1 ? 'commit' : 'commits';
+String _shortDayLabel(DateTime day) {
+  const List<String> months = <String>[
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec'
+  ];
+  return '${months[day.month - 1]} ${day.day}';
+}
 
 class _CommitActivityPainter extends CustomPainter {
   final List<int> counts;
@@ -200,7 +242,7 @@ class _CommitActivityPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (maximum == 0) return;
     final double slot = size.width / counts.length;
-    final double width = math.min(4, slot * 0.65);
+    final double width = math.min(8, slot * 0.68);
     final Paint paint = Paint()..color = color;
     for (int index = 0; index < counts.length; index++) {
       final int count = counts[index];

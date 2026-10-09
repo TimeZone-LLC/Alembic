@@ -368,6 +368,21 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
                     final bool showContext =
                         HomeRepositoryRow.showsProjectContext(
                             context, constraints.maxWidth);
+                    final double contextWidth = !showContext
+                        ? 0.0
+                        : (constraints.maxWidth * 0.42)
+                            .clamp(300, 620)
+                            .clamp(
+                                0,
+                                constraints.maxWidth -
+                                    (selectable ? 38 : 0) -
+                                    24 -
+                                    16 -
+                                    (widget.onTogglePin == null ? 0 : 36) -
+                                    8 -
+                                    _RowTrailing.reservedWidth -
+                                    280)
+                            .toDouble();
                     final Widget actions = _RowTrailing(
                       work: activeWork,
                       controlsVisible: !busy && (reveal || _selected),
@@ -472,10 +487,9 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
                                         : identity,
                                   ),
                                   if (showContext) ...<Widget>[
-                                    const Gap(24),
+                                    const Gap(16),
                                     SizedBox(
-                                      width: (constraints.maxWidth * 0.28)
-                                          .clamp(220, 330),
+                                      width: contextWidth,
                                       child: Listener(
                                         behavior: HitTestBehavior.opaque,
                                         onPointerDown:
@@ -519,7 +533,7 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
                                             : const SizedBox.shrink()),
                                   ],
                                   if (!compact) ...<Widget>[
-                                    const Gap(20),
+                                    const Gap(8),
                                     actions,
                                   ],
                                 ],
@@ -898,7 +912,7 @@ class _RowAuthWarning extends StatelessWidget {
 }
 
 class _RowTrailing extends StatelessWidget {
-  static const double reservedWidth = 168;
+  static const double reservedWidth = 128;
 
   final RepositoryWork? work;
   final bool controlsVisible;
@@ -973,6 +987,7 @@ class _RowTrailing extends StatelessWidget {
               Flexible(
                 child: AlembicToolbarButton(
                   label: state.primaryActionLabel,
+                  tooltip: state.primaryActionLabel,
                   leadingIcon: state.primaryActionIcon,
                   compact: true,
                   quiet: true,

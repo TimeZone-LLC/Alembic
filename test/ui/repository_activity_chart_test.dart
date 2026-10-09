@@ -55,13 +55,17 @@ void main() {
                 scale: scale);
             expect(find.text('Commits · 30 days'), findsOneWidget);
             expect(find.text('8'), findsOneWidget);
+            expect(find.text('Sep 10'), findsOneWidget);
+            expect(find.text('Oct 9 · UTC'), findsOneWidget);
+            expect(find.text('3 active days'),
+                shallow ? findsNothing : findsOneWidget);
             expect(find.text('Shallow history'),
                 shallow ? findsOneWidget : findsNothing);
             expect(tester.takeException(), isNull);
             if (scale == 1) {
               expect(
                   tester.getSize(find.byType(RepositoryActivityChart)).height,
-                  lessThanOrEqualTo(60));
+                  lessThanOrEqualTo(66));
             }
           });
         }
@@ -93,7 +97,7 @@ void main() {
     expect(find.text('No commits in 30 days'), findsOneWidget);
     expect(find.text('Shallow history'), findsOneWidget);
     expect(tester.getSize(find.byType(RepositoryActivityChart)).height,
-        lessThanOrEqualTo(60));
+        lessThanOrEqualTo(66));
     expect(find.byType(CustomPaint), findsOneWidget);
     final CustomPaint bar = tester.widget<CustomPaint>(_graph());
     final Uint8List pixels = await _paintPixels(tester, bar.painter!);
@@ -138,6 +142,7 @@ void main() {
     expect(label, contains('Commit activity on the current branch'));
     expect(label, contains('2026-09-10 through 2026-10-09 UTC'));
     expect(label, contains('8 commits'));
+    expect(label, contains('3 active days'));
     expect(label, contains('Shallow history; older commits may be missing'));
     expect(label, contains('2026-09-10 UTC: 1 commit'));
     expect(label, contains('2026-09-11 UTC: 2 commits'));
