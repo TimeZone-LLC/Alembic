@@ -1,5 +1,7 @@
 import 'package:alembic/app/alembic_dialogs.dart';
 import 'package:alembic/core/arcane_repository.dart';
+import 'package:alembic/core/archive_preview_service.dart';
+import 'package:alembic/screen/home/archive_preview_dialog.dart';
 import 'package:alembic/core/repository_runtime.dart';
 import 'package:alembic/screen/home/home_actions.dart';
 import 'package:alembic/screen/home/home_controller.dart';
@@ -117,7 +119,33 @@ class HomeBulkActionsCoordinator {
     if (selected == null) {
       return;
     }
-    List<String> failed = await executeAction(selected);
+    List<String> failed;
+    if (selected == HomeBulkAction.archiveActive) {
+      final List<Repository> confirmed = <Repository>[];
+      for (final Repository repository
+          in List<Repository>.from(runtime.activeRepositories)) {
+        final ArcaneRepository arcane = controller.repositoryFor(repository);
+        final ArchivePreview preview = await ArchivePreviewService.instance
+            .inspect(
+                sourcePath: arcane.repoPath, destinationPath: arcane.imagePath);
+        if (!context.mounted) return;
+        final ArchivePreviewDecision decision = await showArchivePreviewDialog(
+            context,
+            preview: preview,
+            allowSkip: true);
+        if (decision == ArchivePreviewDecision.cancel) return;
+        if (decision == ArchivePreviewDecision.archive) {
+          confirmed.add(repository);
+        }
+      }
+      failed = await executeOperation(
+          confirmed,
+          (ArcaneRepository repository) =>
+              repository.archive(risksAcknowledged: true),
+          label: HomeBulkAction.archiveActive.label);
+    } else {
+      failed = await executeAction(selected);
+    }
     if (failed.isNotEmpty && context.mounted) {
       await showAlembicInfoDialog(
         context,

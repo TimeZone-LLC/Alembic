@@ -1,5 +1,7 @@
 import 'package:alembic/app/alembic_dialogs.dart';
 import 'package:alembic/core/arcane_repository.dart';
+import 'package:alembic/core/archive_preview_service.dart';
+import 'package:alembic/screen/home/archive_preview_dialog.dart';
 import 'package:alembic/core/repository_actions_controller.dart';
 import 'package:alembic/core/repository_auth.dart';
 import 'package:alembic/screen/home/repository_auth_dialog.dart';
@@ -56,10 +58,21 @@ class HomeRepositoryOperations implements RepositoryTileActionOperations {
       );
 
   @override
-  Future<void> archive() => _run(
-        () => actionsController.archive(_fullName, accountId: accountId),
-        failureTitle: 'Archive Failed',
-      );
+  Future<void> archive() async {
+    final ArchivePreview preview = await ArchivePreviewService.instance.inspect(
+      sourcePath: arcaneRepository.repoPath,
+      destinationPath: arcaneRepository.imagePath,
+    );
+    if (!context.mounted) return;
+    final ArchivePreviewDecision decision =
+        await showArchivePreviewDialog(context, preview: preview);
+    if (decision != ArchivePreviewDecision.archive) return;
+    await _run(
+      () => actionsController.archive(_fullName,
+          accountId: accountId, risksAcknowledged: true),
+      failureTitle: 'Archive Failed',
+    );
+  }
 
   @override
   Future<void> deleteRepository() => _run(

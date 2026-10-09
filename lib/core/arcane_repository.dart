@@ -4,6 +4,8 @@ import 'dart:isolate';
 import 'dart:math';
 
 import 'package:alembic/core/repository_runtime.dart';
+import 'package:alembic/core/archive_preview_service.dart';
+import 'package:alembic/core/git_status_service.dart';
 import 'package:alembic/main.dart';
 import 'package:alembic/platform/desktop_platform_adapter.dart';
 import 'package:alembic/util/archive_master.dart';
@@ -217,9 +219,19 @@ class ArcaneRepository {
     return _specific!;
   }
 
-  Future<bool> get isActive => Directory("$repoPath/.git").exists();
+  Future<bool> get isActive async {
+    final FileSystemEntityType type =
+        await FileSystemEntity.type("$repoPath/.git");
+    return type == FileSystemEntityType.directory ||
+        type == FileSystemEntityType.file;
+  }
 
-  bool get isActiveSync => Directory("$repoPath/.git").existsSync();
+  bool get isActiveSync {
+    final FileSystemEntityType type =
+        FileSystemEntity.typeSync("$repoPath/.git");
+    return type == FileSystemEntityType.directory ||
+        type == FileSystemEntityType.file;
+  }
 
   Future<bool> get isArchived => File(imagePath).exists();
 
@@ -602,10 +614,26 @@ class ArcaneRepository {
   Future<void> openInFinder() =>
       DesktopPlatformAdapter.instance.openInFileExplorer(repoPath);
 
-  Future<void> archive() {
+  Future<void> archive({bool risksAcknowledged = false}) {
     return doWork<void>("Archiving", () async {
       if (!config.archiveEnabled || await isArchived || !await isActive) {
         return;
+      }
+
+      final String? blockingReason =
+          await ArchivePreviewService.archiveBlockReason(repoPath);
+      if (blockingReason != null) throw StateError(blockingReason);
+      if (!risksAcknowledged) {
+        final GitStatusSnapshot status =
+            await GitStatusService.instance.read(repoPath, force: true);
+        final List<String> warnings =
+            ArchivePreviewService.statusWarnings(status);
+        if (warnings.isNotEmpty) throw StateError(warnings.join('\n'));
+      }
+      if (await ArchivePreviewService.destinationInsideSource(
+          repoPath, imagePath)) {
+        throw StateError(
+            'The archive destination must be outside the source checkout.');
       }
 
       File archiveFile = File(imagePath);
@@ -620,6 +648,9 @@ class ArcaneRepository {
             'Archive creation produced no data for ${repository.fullName}',
           );
         }
+        final String? changedBlock =
+            await ArchivePreviewService.archiveBlockReason(repoPath);
+        if (changedBlock != null) throw StateError(changedBlock);
         if (await archiveFile.exists()) {
           return;
         }
