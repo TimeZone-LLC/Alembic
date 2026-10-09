@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:alembic/core/archive_preview_service.dart';
 import 'package:alembic/core/git_status_service.dart';
 import 'package:alembic/screen/home/archive_preview_dialog.dart';
@@ -38,6 +40,93 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+  for (final bool escape in <bool>[false, true]) {
+    testWidgets(
+        'loading preview cancels safely with ${escape ? 'Escape' : 'Cancel'}',
+        (WidgetTester tester) async {
+      final Completer<ArchivePreview> pending = Completer<ArchivePreview>();
+      ArchivePreviewDecision? decision;
+      int archives = 0;
+      int closed = 0;
+      await tester.pumpWidget(ArcaneApp(
+        theme: ArcaneTheme(
+            themeMode: ThemeMode.light, scheme: AlembicShadcnTokens.scheme),
+        home: Builder(
+            builder: (BuildContext context) => Center(
+                    child: AlembicToolbarButton(
+                  label: 'Preview',
+                  onPressed: () async {
+                    decision = await showArchivePreviewLoadingDialog(context,
+                        loadPreview: () => pending.future,
+                        onClosed: () => closed++);
+                    if (decision == ArchivePreviewDecision.archive) archives++;
+                  },
+                ))),
+      ));
+      await tester.tap(find.text('Preview'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.text('Checking Git status and measuring files…'),
+          findsOneWidget);
+      expect(find.byType(AlembicProgressMark), findsOneWidget);
+      await tester.tap(find.text('Archive'));
+      await tester.pump();
+      expect(decision, isNull);
+      if (escape) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      } else {
+        await tester.tap(find.text('Cancel'));
+      }
+      await tester.pump();
+      pending.complete(preview());
+      await tester.pumpAndSettle();
+      expect(decision, ArchivePreviewDecision.cancel);
+      expect(archives, 0);
+      expect(closed, 1);
+      expect(find.text('Archive preview'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets(
+      'failed loading preview exposes retry before explicit confirmation',
+      (WidgetTester tester) async {
+    int attempts = 0;
+    ArchivePreviewDecision? decision;
+    await tester.pumpWidget(ArcaneApp(
+      theme: ArcaneTheme(
+          themeMode: ThemeMode.dark, scheme: AlembicShadcnTokens.scheme),
+      home: Builder(
+          builder: (BuildContext context) => Center(
+                  child: AlembicToolbarButton(
+                label: 'Preview',
+                onPressed: () async {
+                  decision = await showArchivePreviewLoadingDialog(context,
+                      loadPreview: () async {
+                    attempts++;
+                    if (attempts == 1) throw StateError('permission denied');
+                    return preview();
+                  });
+                },
+              ))),
+    ));
+    await tester.tap(find.text('Preview'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('permission denied'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    await tester.tap(find.text('Archive'));
+    await tester.pumpAndSettle();
+    expect(decision, isNull);
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(attempts, 2);
+    expect(find.text('/source/project'), findsOneWidget);
+    await tester.tap(find.text('Archive anyway'));
+    await tester.pumpAndSettle();
+    expect(decision, ArchivePreviewDecision.archive);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('blocked preview supports skip and Escape at narrow scaled size',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(480, 800);
