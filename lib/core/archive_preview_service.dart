@@ -116,6 +116,7 @@ class ArchivePreviewService {
   Future<ArchivePreview> inspect({
     required String sourcePath,
     required String destinationPath,
+    bool Function()? isCancelled,
   }) async {
     final GitStatusSnapshot status =
         await gitStatusService.read(sourcePath, force: true);
@@ -124,6 +125,9 @@ class ArchivePreviewService {
     int files = 0;
     int bytes = 0;
     try {
+      if (isCancelled?.call() == true) {
+        throw StateError('Archive preview cancelled');
+      }
       blockingReason = await archiveBlockReason(sourcePath);
       if (await destinationInsideSource(sourcePath, destinationPath)) {
         blockingReason =
@@ -144,6 +148,9 @@ class ArchivePreviewService {
           while (await entries
               .moveNext()
               .timeout(measurementTimeout - clock.elapsed)) {
+            if (isCancelled?.call() == true) {
+              throw StateError('Archive preview cancelled');
+            }
             if (clock.elapsed >= measurementTimeout) {
               throw TimeoutException('Archive measurement timed out');
             }

@@ -191,6 +191,19 @@ void main() {
         isEmpty);
   });
 
+  test('cancelled measurement does not walk source files', () async {
+    final String path = '${directory.path}/checkout';
+    await initialize(path);
+    final ArchivePreview preview = await ArchivePreviewService().inspect(
+      sourcePath: path,
+      destinationPath: '${directory.path}/archive.zip',
+      isCancelled: () => true,
+    );
+    expect(preview.canArchive, isFalse);
+    expect(preview.measurementError, contains('cancelled'));
+    expect(preview.fileCount, 0);
+  });
+
   test('unknown status is warned rather than described as clean', () {
     final List<String> warnings = ArchivePreviewService.statusWarnings(
         GitStatusSnapshot(

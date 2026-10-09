@@ -13,6 +13,7 @@ import 'package:github/github.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 class HomeRepositoryOperations implements RepositoryTileActionOperations {
+  static final Set<String> _archivePreviews = <String>{};
   final BuildContext context;
   final Repository repository;
   final String? accountId;
@@ -59,19 +60,29 @@ class HomeRepositoryOperations implements RepositoryTileActionOperations {
 
   @override
   Future<void> archive() async {
-    final ArchivePreview preview = await ArchivePreviewService.instance.inspect(
-      sourcePath: arcaneRepository.repoPath,
-      destinationPath: arcaneRepository.imagePath,
-    );
-    if (!context.mounted) return;
-    final ArchivePreviewDecision decision =
-        await showArchivePreviewDialog(context, preview: preview);
-    if (decision != ArchivePreviewDecision.archive) return;
-    await _run(
-      () => actionsController.archive(_fullName,
-          accountId: accountId, risksAcknowledged: true),
-      failureTitle: 'Archive Failed',
-    );
+    final String key = _fullName.toLowerCase();
+    if (!context.mounted || !_archivePreviews.add(key)) return;
+    bool cancelled = false;
+    try {
+      final ArchivePreviewDecision decision =
+          await showArchivePreviewLoadingDialog(
+        context,
+        onClosed: () => cancelled = true,
+        loadPreview: () => ArchivePreviewService.instance.inspect(
+          sourcePath: arcaneRepository.repoPath,
+          destinationPath: arcaneRepository.imagePath,
+          isCancelled: () => cancelled,
+        ),
+      );
+      if (decision != ArchivePreviewDecision.archive) return;
+      await _run(
+        () => actionsController.archive(_fullName,
+            accountId: accountId, risksAcknowledged: true),
+        failureTitle: 'Archive Failed',
+      );
+    } finally {
+      _archivePreviews.remove(key);
+    }
   }
 
   @override
