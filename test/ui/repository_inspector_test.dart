@@ -262,9 +262,14 @@ void main() {
         (WidgetTester tester) async {
       actions.state = state;
       await mount(tester);
+      final String fileExplorerName = Platform.isMacOS
+          ? 'Finder'
+          : Platform.isWindows
+              ? 'File Explorer'
+              : 'File Browser';
       for (String action in <String>[
         'Open',
-        'Reveal in Finder',
+        'Reveal in $fileExplorerName',
         'Pull',
         'Fork & Clone'
       ]) {
