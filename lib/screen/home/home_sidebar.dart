@@ -1,7 +1,13 @@
+import 'package:alembic/core/repository_library_service.dart';
 import 'package:alembic/screen/home/home_view_filters.dart';
 import 'package:arcane/arcane.dart';
 
 class HomeSidebar extends StatelessWidget {
+  final RepositoryLibrarySnapshot? library;
+  final RepositoryCollection selectedCollection;
+  final Iterable<String>? repositoryNames;
+  final ValueChanged<RepositoryCollection>? onCollectionSelected;
+  final VoidCallback? onManageGroups;
   final HomeFilterState filters;
   final HomeStats stats;
   final List<String> owners;
@@ -11,6 +17,11 @@ class HomeSidebar extends StatelessWidget {
 
   const HomeSidebar({
     super.key,
+    this.library,
+    this.selectedCollection = const RepositoryCollection.all(),
+    this.repositoryNames,
+    this.onCollectionSelected,
+    this.onManageGroups,
     required this.filters,
     required this.stats,
     required this.owners,
@@ -72,6 +83,59 @@ class HomeSidebar extends StatelessWidget {
                       selected: filters.stateFilter == location.$1,
                       onPressed: () => onStateSelected(location.$1),
                     ),
+                  if (library != null &&
+                      onCollectionSelected != null) ...<Widget>[
+                    const Gap(24),
+                    const _SidebarHeading('Collections'),
+                    _SidebarItem(
+                      label: 'All collections',
+                      icon: LucideIcons.layers,
+                      selected: selectedCollection.kind ==
+                          RepositoryCollectionKind.all,
+                      onPressed: () => onCollectionSelected!(
+                          const RepositoryCollection.all()),
+                    ),
+                    _SidebarItem(
+                      label: 'Pinned',
+                      icon: LucideIcons.pin,
+                      count: repositoryNames == null
+                          ? library!.pinnedRepositoryNames.length
+                          : library!.count(const RepositoryCollection.pinned(),
+                              repositoryNames!),
+                      selected: selectedCollection.kind ==
+                          RepositoryCollectionKind.pinned,
+                      onPressed: () => onCollectionSelected!(
+                          const RepositoryCollection.pinned()),
+                    ),
+                    for (final RepositoryGroup group in library!.groups)
+                      _SidebarItem(
+                        label: group.name,
+                        icon: LucideIcons.folder,
+                        count: repositoryNames == null
+                            ? group.repositoryNames.length
+                            : library!.count(
+                                RepositoryCollection.group(group.id),
+                                repositoryNames!),
+                        selected: selectedCollection ==
+                            RepositoryCollection.group(group.id),
+                        onPressed: () => onCollectionSelected!(
+                            RepositoryCollection.group(group.id)),
+                      ),
+                    if (library!.groups.isEmpty)
+                      Padding(
+                          padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
+                          child: Text('Group repositories across owners.',
+                              style: theme.typography.xSmall.copyWith(
+                                  color: theme.colorScheme.mutedForeground))),
+                  ],
+                  if (onManageGroups != null) ...<Widget>[
+                    const Gap(8),
+                    _SidebarItem(
+                        label: 'Manage Library',
+                        icon: LucideIcons.settings2,
+                        selected: false,
+                        onPressed: onManageGroups!),
+                  ],
                   const Gap(24),
                   const _SidebarHeading('Owners'),
                   _SidebarItem(
