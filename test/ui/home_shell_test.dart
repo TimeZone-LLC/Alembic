@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:alembic/app/alembic_theme.dart';
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/repository_runtime.dart';
+import 'package:alembic/core/repository_library_service.dart';
 import 'package:alembic/domain/repository_dto.dart';
 import 'package:alembic/main.dart' as app;
 import 'package:alembic/screen/home/home_repository_browser.dart';
@@ -73,7 +74,7 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  for (final double width in <double>[600, 920, 1380]) {
+  for (final double width in <double>[420, 600, 920, 1380]) {
     for (final ThemeMode mode in <ThemeMode>[ThemeMode.light, ThemeMode.dark]) {
       for (final double textScale in <double>[1, 2]) {
         testWidgets(
@@ -289,6 +290,16 @@ Future<void> _pumpShell(
                           SizedBox(
                             width: AlembicShadcnTokens.sidebarWidth,
                             child: HomeSidebar(
+                              library: controller.library,
+                              selectedCollection:
+                                  const RepositoryCollection.pinned(),
+                              repositoryNames: controller.entries.map(
+                                  (HomeRepositoryEntry entry) =>
+                                      entry.fullName),
+                              onCollectionSelected: (_) =>
+                                  controller.record('Collection'),
+                              onManageGroups: () =>
+                                  controller.record('Manage library'),
                               filters: filters,
                               stats: _stats,
                               owners: _owners,
@@ -305,6 +316,15 @@ Future<void> _pumpShell(
                                 padding:
                                     const EdgeInsets.fromLTRB(16, 16, 16, 12),
                                 child: HomeTopBar(
+                                  library: controller.library,
+                                  selectedCollection:
+                                      const RepositoryCollection.pinned(),
+                                  onCollectionSelected: (_) =>
+                                      controller.record('Collection'),
+                                  onManageLibrary: () =>
+                                      controller.record('Manage library'),
+                                  onQuickSwitcher: () =>
+                                      controller.record('Quick switcher'),
                                   filters: filters,
                                   stats: _stats,
                                   owners: _owners,
@@ -347,6 +367,9 @@ Future<void> _pumpShell(
                                   canForkRepository: (_) => true,
                                   onPrimaryAction: (_) async {},
                                   onRepositoryAction: (_, __) async {},
+                                  library: controller.library,
+                                  onTogglePin: (_) async =>
+                                      controller.record('Pin'),
                                   onShowDetails: (_) async {},
                                   onCloneSelected: (_) async {},
                                   onClearFilters: () => controller.filters
@@ -373,6 +396,12 @@ Future<void> _pumpShell(
 }
 
 class _ShellController {
+  final RepositoryLibrarySnapshot library = RepositoryLibrarySnapshot(
+    pinnedRepositoryNames: <String>['TestFixtures/local-workspace'],
+    groups: <RepositoryGroup>[
+      RepositoryGroup(id: 'group-1', name: 'Desktop projects')
+    ],
+  );
   final RepositoryRuntime runtime = RepositoryRuntime();
   final List<HomeRepositoryEntry> entries = <HomeRepositoryEntry>[
     _fixture('local-workspace', RepoState.active, 'Dart'),

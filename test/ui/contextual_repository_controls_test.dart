@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:alembic/app/alembic_theme.dart';
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/repository_runtime.dart';
+import 'package:alembic/core/repository_auth.dart';
+import 'package:alembic/core/git_status_service.dart';
+import 'package:alembic/screen/home/home_repository_metadata.dart';
 import 'package:alembic/domain/repository_dto.dart';
 import 'package:alembic/main.dart' as app;
 import 'package:alembic/screen/home/home_repository_browser.dart';
@@ -56,6 +59,7 @@ void main() {
     WidgetTester tester, {
     List<HomeRepositoryEntry>? repositories,
     double textScale = 1,
+    HomeRepositoryMetadataCache? metadataCache,
   }) async {
     final List<HomeRepositoryEntry> browserEntries = repositories ?? entries;
     await tester.binding.setSurfaceSize(const Size(1000, 700));
@@ -69,6 +73,7 @@ void main() {
               child: AlembicScaffold(
                   child: HomeRepositoryBrowserPane(
                 entries: browserEntries,
+                metadataCache: metadataCache,
                 totalCount: browserEntries.length,
                 runtime: runtime,
                 revision: 0,
@@ -223,6 +228,53 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('visible Git status refreshes without scanning the catalog',
+      (WidgetTester tester) async {
+    int gitReads = 0;
+    int forcedReads = 0;
+    int authReads = 0;
+    String branch = 'main';
+    final HomeRepositoryMetadataCache cache = HomeRepositoryMetadataCache(
+      readAuth: (_) async {
+        authReads++;
+        return const RepoAuthInfo(
+            transport: RepoAuthTransport.httpsPublic,
+            remoteUrl: null,
+            accountId: null,
+            accountName: null,
+            accountLogin: null,
+            sshKeyPath: null,
+            sshHostAlias: null,
+            isCloned: true,
+            tokenMatchesAccount: true);
+      },
+      readMaster: (_) async => false,
+      readGitStatus: (_, {bool force = false}) async {
+        gitReads++;
+        if (force) forcedReads++;
+        return GitStatusSnapshot(
+            state: GitStatusState.ready,
+            branch: branch,
+            checkedAt: DateTime.now());
+      },
+    );
+    await pumpBrowser(tester,
+        metadataCache: cache,
+        repositories: List<HomeRepositoryEntry>.generate(
+            500, (int index) => _entry('repository-$index', RepoState.active)));
+    final int initialReads = gitReads;
+    expect(initialReads, inInclusiveRange(1, 20));
+    branch = 'feature';
+    await tester.pump(const Duration(seconds: 16));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('feature'), findsWidgets);
+    expect(forcedReads, initialReads);
+    expect(gitReads, initialReads * 2);
+    expect(authReads, initialReads);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('dense list scrolls through a large catalog with one scrollbar',
       (WidgetTester tester) async {
     final List<HomeRepositoryEntry> catalog =
@@ -233,7 +285,7 @@ void main() {
     await pumpBrowser(tester, repositories: catalog);
     expect(find.byType(Scrollbar), findsOneWidget);
     final m.ListView list = tester.widget<m.ListView>(find.byType(m.ListView));
-    expect(list.itemExtent, 70);
+    expect(list.itemExtent, 84);
     expect(find.text('repository-119'), findsNothing);
     await tester.scrollUntilVisible(find.text('repository-119'), 500,
         scrollable: find.byType(m.Scrollable), maxScrolls: 30);

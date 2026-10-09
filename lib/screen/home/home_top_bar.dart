@@ -1,4 +1,5 @@
 import 'package:alembic/screen/home/home_view_filters.dart';
+import 'package:alembic/core/repository_library_service.dart';
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:arcane/arcane.dart';
 
@@ -25,6 +26,10 @@ class HomeTopBar extends StatelessWidget {
   final FocusNode? searchFocusNode;
   final VoidCallback? onToggleSidebar;
   final VoidCallback? onQuickSwitcher;
+  final VoidCallback? onManageLibrary;
+  final RepositoryLibrarySnapshot? library;
+  final RepositoryCollection selectedCollection;
+  final ValueChanged<RepositoryCollection>? onCollectionSelected;
 
   const HomeTopBar({
     super.key,
@@ -50,6 +55,10 @@ class HomeTopBar extends StatelessWidget {
     this.searchFocusNode,
     this.onToggleSidebar,
     this.onQuickSwitcher,
+    this.onManageLibrary,
+    this.library,
+    this.selectedCollection = const RepositoryCollection.all(),
+    this.onCollectionSelected,
   });
 
   @override
@@ -63,6 +72,16 @@ class HomeTopBar extends StatelessWidget {
           final Widget actions = Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
+              if (onManageLibrary != null) ...<Widget>[
+                AlembicToolbarButton(
+                    label: 'Manage library',
+                    leadingIcon: LucideIcons.folderHeart,
+                    onPressed: onManageLibrary,
+                    quiet: true,
+                    compact: true,
+                    iconOnly: true),
+                const Gap(4),
+              ],
               if (onQuickSwitcher != null) ...<Widget>[
                 AlembicToolbarButton(
                   label: 'Quick switcher',
@@ -140,6 +159,38 @@ class HomeTopBar extends StatelessWidget {
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
+              if (showFilters &&
+                  library != null &&
+                  onCollectionSelected != null)
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                      maxWidth: constraints.maxWidth.clamp(0, 210)),
+                  child: AlembicDropdownMenu<RepositoryCollection>(
+                    label: switch (selectedCollection.kind) {
+                      RepositoryCollectionKind.all => 'All collections',
+                      RepositoryCollectionKind.pinned => 'Pinned',
+                      RepositoryCollectionKind.group =>
+                        library!.groupById(selectedCollection.groupId)?.name ??
+                            'All collections',
+                    },
+                    selectedValue: selectedCollection,
+                    items: <AlembicDropdownOption<RepositoryCollection>>[
+                      const AlembicDropdownOption<RepositoryCollection>(
+                          value: RepositoryCollection.all(),
+                          label: 'All collections'),
+                      const AlembicDropdownOption<RepositoryCollection>(
+                          value: RepositoryCollection.pinned(),
+                          label: 'Pinned'),
+                      for (final RepositoryGroup group in library!.groups)
+                        AlembicDropdownOption<RepositoryCollection>(
+                            value: RepositoryCollection.group(group.id),
+                            label: group.name),
+                    ],
+                    onSelected: onCollectionSelected!,
+                    leadingIcon: LucideIcons.folderHeart,
+                    compact: true,
+                  ),
+                ),
               if (!showFilters)
                 AlembicDropdownMenu<HomeSortMode>(
                   label: 'Sort repositories',

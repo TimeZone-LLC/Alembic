@@ -5,6 +5,9 @@ import 'package:alembic/app/alembic_theme.dart';
 import 'package:alembic/bloc/repository_list_store.dart';
 import 'package:alembic/core/account_registry.dart';
 import 'package:alembic/core/repository_actions_controller.dart';
+import 'package:alembic/core/archive_preview_service.dart';
+import 'package:alembic/core/git_status_service.dart';
+import 'package:alembic/screen/repository_worktrees.dart';
 import 'package:alembic/core/repository_runtime.dart';
 import 'package:alembic/core/update_controller.dart';
 import 'package:alembic/main.dart';
@@ -37,6 +40,32 @@ class _FixtureStore extends RepositoryListStore {
 }
 
 class _FixtureActions extends RepositoryActionsController {
+  int archiveCalls = 0;
+  bool risksAcknowledged = false;
+  @override
+  Future<ArchivePreview?> getArchivePreview(String fullName,
+          {String? accountId, bool Function()? isCancelled}) async =>
+      ArchivePreview(
+        sourcePath: '$configPath/workspace/$fullName',
+        destinationPath: '$configPath/archive/$fullName.zip',
+        fileCount: 12,
+        byteCount: 4096,
+        gitStatus: GitStatusSnapshot(
+            state: GitStatusState.ready,
+            branch: 'main',
+            unstaged: 1,
+            checkedAt: DateTime.now()),
+        warnings: <String>['1 modified file will be retained in the archive.'],
+      );
+  @override
+  Future<RepositoryActionResult> archive(String fullName,
+      {String? accountId, bool risksAcknowledged = false}) async {
+    archiveCalls++;
+    this.risksAcknowledged = risksAcknowledged;
+    return RepositoryActionResult.success(
+        fullName: fullName, state: 'archived');
+  }
+
   _FixtureActions()
       : super(store: repositoryListStore, runtime: RepositoryRuntime());
   @override
@@ -278,6 +307,47 @@ void main() {
       await _capture(
           tester, captureKey, 'settings-${title.toLowerCase()}-large-text');
     }
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('inspector archive waits for preview confirmation',
+      (WidgetTester tester) async {
+    final _FixtureActions actions =
+        repositoryActionsController as _FixtureActions;
+    actions.archiveCalls = 0;
+    actions.risksAcknowledged = false;
+    tester.view.physicalSize = const Size(900, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(ArcaneApp(
+        theme: buildAlembicTheme(),
+        home: const RepositoryDetailDialog(fullName: 'sample/alembic')));
+    await tester.pumpAndSettle();
+    expect(find.text('Worktrees'), findsOneWidget);
+    expect(find.byType(RepositoryWorktreesPane), findsNothing);
+    await tester.tap(find.text('Storage'));
+    await tester.pumpAndSettle();
+    final Finder archiveButton = find.byWidgetPredicate((Widget widget) =>
+        widget is AlembicToolbarButton && widget.label == 'Archive');
+    await tester.tap(archiveButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Archive preview'), findsOneWidget);
+    expect(actions.archiveCalls, 0);
+    await tester.tap(find.byWidgetPredicate((Widget widget) =>
+        widget is AlembicToolbarButton && widget.label == 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(actions.archiveCalls, 0);
+    await tester.tap(archiveButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.byWidgetPredicate((Widget widget) =>
+        widget is AlembicToolbarButton && widget.label == 'Archive anyway'));
+    await tester.pumpAndSettle();
+    expect(actions.archiveCalls, 1);
+    expect(actions.risksAcknowledged, isTrue);
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
 

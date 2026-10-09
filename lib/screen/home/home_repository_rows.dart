@@ -1,5 +1,7 @@
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/repository_auth.dart';
+import 'package:alembic/core/git_status_service.dart';
+import 'package:alembic/widget/repository_git_status.dart';
 import 'package:alembic/core/repository_runtime.dart';
 import 'package:alembic/platform/desktop_platform_adapter.dart';
 import 'package:alembic/presentation/repository_action_catalog.dart';
@@ -117,6 +119,8 @@ class HomeRepositoryRow extends StatefulWidget {
   final bool canFork;
   final HomeSelectionController? selection;
   final bool showSeparator;
+  final bool pinned;
+  final VoidCallback? onTogglePin;
   final VoidCallback? onSelect;
   final HomeEntryCallback onPrimaryAction;
   final HomeEntryActionCallback onAction;
@@ -137,6 +141,8 @@ class HomeRepositoryRow extends StatefulWidget {
     this.selection,
     this.onSelect,
     this.showSeparator = true,
+    this.pinned = false,
+    this.onTogglePin,
   });
 
   @override
@@ -277,6 +283,13 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
         onPressed: () => widget.onPrimaryAction(widget.entry),
         child: Text(widget.entry.repoState.primaryActionLabel),
       ),
+      if (widget.onTogglePin != null)
+        MenuButton(
+          leading: Icon(widget.pinned ? LucideIcons.pinOff : LucideIcons.pin,
+              size: 14),
+          onPressed: widget.onTogglePin,
+          child: Text(widget.pinned ? 'Unpin repository' : 'Pin repository'),
+        ),
       const MenuDivider(),
       for (RepositoryActionModel model in plainModels)
         MenuButton(
@@ -379,6 +392,16 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
                               authInfo: widget.metadata.authInfo,
                               onAuthPressed: _onAuthWarningPressed,
                             ),
+                            if (widget.metadata.gitStatus != null) ...<Widget>[
+                              const Gap(3),
+                              FutureBuilder<GitStatusSnapshot>(
+                                future: widget.metadata.gitStatus,
+                                builder: (BuildContext context,
+                                        AsyncSnapshot<GitStatusSnapshot>
+                                            snapshot) =>
+                                    RepositoryGitStatus(status: snapshot.data),
+                              ),
+                            ],
                             if (description != null && narrow) ...<Widget>[
                               const Gap(4),
                               Text(
@@ -400,7 +423,8 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
                         Container(
-                          constraints: const BoxConstraints(minHeight: 68),
+                          constraints:
+                              BoxConstraints(minHeight: narrow ? 68 : 82),
                           alignment: Alignment.centerLeft,
                           padding: EdgeInsets.symmetric(
                               horizontal: compact ? 8 : 12, vertical: 7),
@@ -439,6 +463,24 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
                                           )
                                         : identity,
                                   ),
+                                  if (widget.onTogglePin != null &&
+                                      (widget.pinned ||
+                                          reveal ||
+                                          _selected)) ...<Widget>[
+                                    const Gap(4),
+                                    AlembicToolbarButton(
+                                      label: widget.pinned
+                                          ? 'Unpin repository'
+                                          : 'Pin repository',
+                                      leadingIcon: widget.pinned
+                                          ? LucideIcons.pinOff
+                                          : LucideIcons.pin,
+                                      iconOnly: true,
+                                      compact: true,
+                                      quiet: true,
+                                      onPressed: widget.onTogglePin,
+                                    ),
+                                  ],
                                   if (!compact) ...<Widget>[
                                     const Gap(20),
                                     actions,

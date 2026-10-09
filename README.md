@@ -4,6 +4,10 @@ Alembic is an Arcane Flutter desktop app for managing GitHub checkouts, local ar
 
 Connect one or more GitHub accounts, clone repositories, or import existing GitHub checkouts in place. Search and filter the workspace, open repositories in configured editors and Git clients, and archive or restore local copies. Per-repository settings control authentication, tools, and the subdirectory to open.
 
+Use ⌘K on macOS or Ctrl+K on Windows to find a repository and open, reveal, pull, or inspect it. Pin frequently used repositories or organize them into named groups across accounts and owners. Local rows show branch, working-copy changes, and ahead/behind counts from Git.
+
+The inspector manages linked Git worktrees. Removal checks for uncommitted work, and archiving a shared checkout is blocked. Archive previews show source and destination paths, file counts, size, and local Git warnings before confirmation. Automatic archiving skips repositories with unresolved risks.
+
 Settings include storage locations, archive schedules, commit signing, startup and tray behavior, appearance, application updates, and diagnostics. The interface follows the system appearance or a chosen light/dark theme and adapts to compact desktop windows.
 
 ## Development

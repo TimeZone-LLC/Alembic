@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/repository_auth.dart';
+import 'package:alembic/core/git_status_service.dart';
 import 'package:alembic/core/repository_runtime.dart';
 import 'package:alembic/main.dart' as app;
 import 'package:alembic/screen/home/home_repository_metadata.dart';
@@ -16,6 +17,7 @@ void main() {
   late HomeRepositoryMetadataCache cache;
   int authReads = 0;
   int masterReads = 0;
+  int gitReads = 0;
   final Repository repository = Repository(
     name: 'fixture',
     fullName: 'owner/fixture',
@@ -43,10 +45,18 @@ void main() {
     runtime = RepositoryRuntime();
     authReads = 0;
     masterReads = 0;
+    gitReads = 0;
     cache = HomeRepositoryMetadataCache(
       readAuth: (_) async {
         authReads++;
         return mismatch;
+      },
+      readGitStatus: (_, {bool force = false}) async {
+        gitReads++;
+        return GitStatusSnapshot(
+            state: GitStatusState.ready,
+            branch: 'main',
+            checkedAt: DateTime.now());
       },
       readMaster: (_) async {
         masterReads++;
@@ -65,6 +75,7 @@ void main() {
     int revision = 0,
     String accountId = 'account',
     String configuration = 'original',
+    bool includeGitStatus = false,
   }) =>
       cache.forRepository(
         repository: ArcaneRepository(
@@ -74,6 +85,7 @@ void main() {
         ),
         revision: revision,
         configuration: configuration,
+        includeGitStatus: includeGitStatus,
       );
 
   test('remounted rows reuse pending metadata and preserve authentication',
@@ -113,6 +125,35 @@ void main() {
     );
     expect(authReads, 6);
     expect(masterReads, 6);
+  });
+
+  test('Git inspection starts only for local rows and survives remounts',
+      () async {
+    expect(read().gitStatus, isNull);
+    expect(gitReads, 0);
+    final HomeRepositoryMetadata first = read(includeGitStatus: true);
+    final HomeRepositoryMetadata remounted = read(includeGitStatus: true);
+    expect(remounted.gitStatus, same(first.gitStatus));
+    expect(gitReads, 1);
+    expect((await remounted.gitStatus!).branch, 'main');
+    read(revision: 1, includeGitStatus: true);
+    expect(gitReads, 2);
+    expect(read(revision: 1).gitStatus, isNull);
+    expect(gitReads, 2);
+  });
+
+  test('visible Git refresh preserves auth and master metadata', () async {
+    final HomeRepositoryMetadata before = read(includeGitStatus: true);
+    expect(cache.refreshGitStatus(<String>{'owner/not-mounted'}), isFalse);
+    expect(gitReads, 1);
+    expect(cache.refreshGitStatus(<String>{'owner/fixture'}), isTrue);
+    final HomeRepositoryMetadata after = read(includeGitStatus: true);
+    expect(after.authInfo, same(before.authInfo));
+    expect(after.hasMasterClone, same(before.hasMasterClone));
+    expect(after.gitStatus, isNot(same(before.gitStatus)));
+    expect(authReads, 1);
+    expect(masterReads, 1);
+    expect(gitReads, 2);
   });
 
   test('removed repositories release cached metadata', () {

@@ -125,11 +125,13 @@ class RepositoryActionsController {
       _run(fullName, accountId, (ctx) => ctx.arcane.openInFinder());
 
   Future<ArchivePreview?> getArchivePreview(String fullName,
-      {String? accountId}) async {
+      {String? accountId, bool Function()? isCancelled}) async {
     final _ActionContext? ctx = _resolveContext(fullName, accountId);
     if (ctx == null) return null;
     return ArchivePreviewService.instance.inspect(
-        sourcePath: ctx.arcane.repoPath, destinationPath: ctx.arcane.imagePath);
+        sourcePath: ctx.arcane.repoPath,
+        destinationPath: ctx.arcane.imagePath,
+        isCancelled: isCancelled);
   }
 
   Future<RepositoryActionResult> archive(
