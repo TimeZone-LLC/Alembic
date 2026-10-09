@@ -13,6 +13,7 @@ import 'package:alembic/util/repo_config.dart';
 import 'package:arcane/arcane.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' as m;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:github/github.dart';
 import 'package:hive_flutter/adapters.dart';
@@ -22,6 +23,8 @@ void main() {
   late Directory directory;
   late RepositoryRuntime runtime;
   List<HomeRepositoryEntry> requested = <HomeRepositoryEntry>[];
+  List<String> opened = <String>[];
+  List<String> inspected = <String>[];
   final List<HomeRepositoryEntry> entries = <HomeRepositoryEntry>[
     _entry('local', RepoState.active),
     _entry('remote', RepoState.cloud),
@@ -39,6 +42,8 @@ void main() {
   setUp(() {
     runtime = RepositoryRuntime();
     requested = <HomeRepositoryEntry>[];
+    opened = <String>[];
+    inspected = <String>[];
   });
   tearDown(() async => runtime.dispose());
   tearDownAll(() async {
@@ -47,30 +52,41 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  Future<void> pumpBrowser(WidgetTester tester) async {
+  Future<void> pumpBrowser(
+    WidgetTester tester, {
+    List<HomeRepositoryEntry>? repositories,
+    double textScale = 1,
+  }) async {
+    final List<HomeRepositoryEntry> browserEntries = repositories ?? entries;
     await tester.binding.setSurfaceSize(const Size(1000, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(ArcaneApp(
       theme: buildAlembicTheme(),
-      home: AlembicScaffold(
-          child: HomeRepositoryBrowserPane(
-        entries: entries,
-        totalCount: entries.length,
-        runtime: runtime,
-        revision: 0,
-        archiveEnabled: true,
-        filters: const HomeFilterState.initial(),
-        accountForRepository: (_) => null,
-        canForkRepository: (_) => true,
-        onPrimaryAction: (_) async {},
-        onRepositoryAction: (_, __) async {},
-        onShowDetails: (_) async {},
-        onCloneSelected: (List<HomeRepositoryEntry> selected) async {
-          requested = selected;
-        },
-        onClearFilters: () {},
-        onImportRepository: () {},
-      )),
+      home: m.Builder(
+          builder: (BuildContext context) => m.MediaQuery(
+              data: m.MediaQuery.of(context)
+                  .copyWith(textScaler: m.TextScaler.linear(textScale)),
+              child: AlembicScaffold(
+                  child: HomeRepositoryBrowserPane(
+                entries: browserEntries,
+                totalCount: browserEntries.length,
+                runtime: runtime,
+                revision: 0,
+                archiveEnabled: true,
+                filters: const HomeFilterState.initial(),
+                accountForRepository: (_) => null,
+                canForkRepository: (_) => true,
+                onPrimaryAction: (HomeRepositoryEntry entry) async =>
+                    opened.add(entry.lowerKey),
+                onRepositoryAction: (_, __) async {},
+                onShowDetails: (HomeRepositoryEntry entry) async =>
+                    inspected.add(entry.lowerKey),
+                onCloneSelected: (List<HomeRepositoryEntry> selected) async {
+                  requested = selected;
+                },
+                onClearFilters: () {},
+                onImportRepository: () {},
+              )))),
     ));
     await tester.pumpAndSettle();
   }
@@ -131,8 +147,6 @@ void main() {
     await pumpBrowser(tester);
     await tester.tap(find.text('archive'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(AlembicSelectionToggle).at(2));
-    await tester.pumpAndSettle();
     expect(find.text('Restore selected'), findsOneWidget);
     await tester.tap(find.text('Select all'));
     await tester.pumpAndSettle();
@@ -153,7 +167,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('touch reveals controls without activating a hidden action',
+  testWidgets('touch selects a repository without activating its action',
       (WidgetTester tester) async {
     await pumpBrowser(tester);
     await tester.tap(find.text('remote'));
@@ -165,7 +179,108 @@ void main() {
                 matching: find.byType(AlembicSelectionToggle))
             .hitTestable(),
         findsOneWidget);
+    expect(find.text('Deselect all'), findsOneWidget);
+    expect(opened, isEmpty);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('list supports range selection, arrows, inspector and Escape',
+      (WidgetTester tester) async {
+    await pumpBrowser(tester);
+    await tester.tap(find.text('local'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 selected'), findsOneWidget);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.tap(find.text('archive'));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pumpAndSettle();
+    expect(find.text('3 selected'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pumpAndSettle();
+    expect(find.text('1 selected'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    expect(opened, <String>['owner/remote']);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyI);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    expect(inspected, <String>['owner/remote']);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await tester.pumpAndSettle();
+    expect(find.text('3 selected'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
     expect(find.text('Deselect all'), findsNothing);
+    await tester.tap(find.text('remote'));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.tap(find.text('remote'));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await tester.pumpAndSettle();
+    expect(find.text('Deselect all'), findsNothing);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    expect(opened, <String>['owner/remote']);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('dense list scrolls through a large catalog with one scrollbar',
+      (WidgetTester tester) async {
+    final List<HomeRepositoryEntry> catalog =
+        List<HomeRepositoryEntry>.generate(
+      120,
+      (int index) => _entry('repository-$index', RepoState.cloud),
+    );
+    await pumpBrowser(tester, repositories: catalog);
+    expect(find.byType(Scrollbar), findsOneWidget);
+    final m.ListView list = tester.widget<m.ListView>(find.byType(m.ListView));
+    expect(list.itemExtent, 70);
+    expect(find.text('repository-119'), findsNothing);
+    await tester.scrollUntilVisible(find.text('repository-119'), 500,
+        scrollable: find.byType(m.Scrollable), maxScrolls: 30);
+    await tester.pumpAndSettle();
+    expect(find.text('repository-119'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+      'arrow navigation keeps offscreen rows visible in both directions',
+      (WidgetTester tester) async {
+    final List<HomeRepositoryEntry> catalog =
+        List<HomeRepositoryEntry>.generate(
+            60, (int index) => _entry('repository-$index', RepoState.cloud));
+    await pumpBrowser(tester, repositories: catalog);
+    await tester.tap(find.text('repository-0'));
+    for (int index = 0; index < 25; index++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump(const Duration(milliseconds: 120));
+    }
+    await tester.pumpAndSettle();
+    expect(find.text('repository-25').hitTestable(), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    expect(opened, <String>['owner/repository-25']);
+    for (int index = 0; index < 25; index++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await tester.pump(const Duration(milliseconds: 120));
+    }
+    await tester.pumpAndSettle();
+    expect(find.text('repository-0').hitTestable(), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('scaled text uses adaptive row heights without overflow',
+      (WidgetTester tester) async {
+    await pumpBrowser(tester, textScale: 2);
+    final m.ListView list = tester.widget<m.ListView>(find.byType(m.ListView));
+    expect(list.itemExtent, isNull);
+    final TestGesture mouse =
+        await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(1, 1));
+    addTearDown(mouse.removePointer);
+    await mouse.moveTo(tester.getCenter(find.byType(HomeRepositoryRow).first));
+    await tester.pumpAndSettle();
+    expect(find.text('Open').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

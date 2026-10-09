@@ -11,6 +11,7 @@ import 'package:alembic/main.dart';
 import 'package:alembic/screen/repository_detail.dart';
 import 'package:alembic/screen/settings.dart';
 import 'package:alembic/ui/alembic_ui.dart';
+import 'package:alembic/util/git_accounts.dart';
 import 'package:arcane/arcane.dart';
 import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter_test/flutter_test.dart';
@@ -98,18 +99,63 @@ void main() {
     final FontLoader icons = FontLoader('packages/arcane/LucideIcons')
       ..addFont(
           rootBundle.load('packages/arcane/resources/icons/LucideIcons.ttf'));
-    await Future.wait<void>(<Future<void>>[
-      sans.load(),
-      mono.load(),
-      fallbackMono.load(),
-      icons.load()
-    ]);
+    final List<FontLoader> fonts = <FontLoader>[
+      sans,
+      mono,
+      fallbackMono,
+      icons,
+      FontLoader('sans-serif')
+        ..addFont(rootBundle.load('assets/fonts/PlusJakartaSans-Variable.ttf')),
+    ];
+    if (Platform.isMacOS) {
+      for (final (String, String) font in <(String, String)>[
+        ('.SF Pro Text', '/System/Library/Fonts/SFNS.ttf'),
+        ('.SFMono-Regular', '/System/Library/Fonts/SFNSMono.ttf'),
+      ]) {
+        final File file = File(font.$2);
+        if (await file.exists()) {
+          fonts.add(FontLoader(font.$1)
+            ..addFont(file.readAsBytes().then(ByteData.sublistView)));
+        }
+      }
+    }
+    await Future.wait<void>(fonts.map((FontLoader font) => font.load()));
   });
   tearDownAll(() async {
     await updateController.dispose();
     await repositoryListStore.close();
     await Hive.close();
     await directory.delete(recursive: true);
+  });
+
+  testWidgets('Escape returns from settings to the previous screen',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1000, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(ArcaneApp(
+      theme: buildAlembicTheme(),
+      home: Builder(
+        builder: (BuildContext context) => Button(
+          style: const ButtonStyle.secondary(),
+          onPressed: () => showSettingsModal(context),
+          child: const Text('Open preferences'),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('Open preferences'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(Settings), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(Settings), findsNothing);
+    expect(find.text('Open preferences'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('settings preserve unsaved interval across categories and resize',
@@ -175,6 +221,63 @@ void main() {
             widget is AlembicSettingsPane && widget.title == 'Workspace'),
         findsOneWidget);
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('settings stay usable with larger text in a narrow window',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(520, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.runAsync(() => saveGitAccounts(const <GitAccount>[
+          GitAccount(
+            id: 'fixture-account',
+            name: 'Fixture GitHub account with a long label',
+            token: 'test-token',
+            tokenType: 'fine_grained',
+            login: 'fixture-account',
+            createdAtMs: 0,
+          ),
+        ]));
+    addTearDown(
+        () => tester.runAsync(() => saveGitAccounts(const <GitAccount>[])));
+    final GlobalKey captureKey = GlobalKey();
+    await tester.pumpWidget(ArcaneApp(
+      theme: buildAlembicTheme(),
+      home: Builder(
+        builder: (BuildContext context) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            textScaler: const TextScaler.linear(2),
+          ),
+          child: RepaintBoundary(key: captureKey, child: const Settings()),
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(find.byKey(const ValueKey<String>('settings-category')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('settings-done')), findsOneWidget);
+    for (final String title in <String>[
+      'General',
+      'Workspace',
+      'Tools',
+      'Accounts',
+      'Advanced'
+    ]) {
+      await tester.tap(find.descendant(
+        of: find.byKey(const ValueKey<String>('settings-category')),
+        matching: find.byType(Button),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.widgetWithText(MenuButton, title));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(tester.takeException(), isNull, reason: title);
+      await _capture(
+          tester, captureKey, 'settings-${title.toLowerCase()}-large-text');
+    }
     await tester.pumpWidget(const SizedBox());
   });
 

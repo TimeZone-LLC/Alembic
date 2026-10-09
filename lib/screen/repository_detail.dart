@@ -15,6 +15,7 @@ import 'package:arcane/arcane.dart';
 import 'package:arcane/generated/arcane_shadcn/shadcn_flutter.dart'
     show showDialog;
 import 'package:flutter/widgets.dart' as m;
+import 'package:flutter/services.dart';
 import 'package:github/github.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
@@ -26,8 +27,7 @@ Future<void> showRepositoryDetailDialog(
 
 class RepositoryDetailDialog extends StatefulWidget {
   static const double maxDialogWidth = 760;
-  static const double maxDialogHeight = 700;
-  static const double minDialogWidth = 620;
+  static const double maxDialogHeight = 660;
 
   final String fullName;
 
@@ -61,6 +61,7 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
   String? _successMessage;
   String? _errorMessage;
   String? _loadError;
+  _InspectorSection _section = _InspectorSection.overview;
 
   bool get _archiveEnabled => config.archiveEnabled;
 
@@ -97,10 +98,19 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
   }
 
   Future<void> _refreshDetail() async {
-    Repository? repository = _repository;
+    Repository? repository =
+        _repository ?? repositoryListStore.findRepository(widget.fullName);
     if (repository == null) {
       return;
     }
+    if (_repository == null) {
+      _repository = repository;
+      _openDirectoryController.text = getRepoConfig(repository).openDirectory;
+      _workSubscription = repositoryRuntimeInstance
+          .streamWorkEntries(repository)
+          .listen(_onWorkEntriesChanged);
+    }
+    setState(() => _loadError = null);
     RepositoryDetail? detail;
     try {
       detail = await repositoryActionsController.getDetail(widget.fullName);
@@ -122,6 +132,7 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
   }
 
   void _onWorkEntriesChanged(List<RepositoryWork> entries) {
+    if (!mounted) return;
     bool workSetChanged = entries.length != _workEntries.length;
     setState(() {
       _workEntries = entries;
@@ -157,6 +168,10 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
         setState(() {
           _errorMessage = result.error ?? '$label failed.';
         });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _errorMessage = '$label failed: $error');
       }
     } finally {
       if (mounted) {
@@ -264,12 +279,22 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
         )),
       ).open(context);
 
-  void _openOnGitHub() {
+  Future<void> _openOnGitHub() async {
     Repository? repository = _repository;
     String url = repository == null || repository.htmlUrl.isEmpty
         ? 'https://github.com/${widget.fullName}'
         : repository.htmlUrl;
-    unawaited(launchUrlString(url));
+    try {
+      bool opened = await launchUrlString(url);
+      if (!opened && mounted) {
+        setState(
+            () => _errorMessage = 'Could not open the repository on GitHub.');
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _errorMessage = 'Could not open GitHub: $error');
+      }
+    }
   }
 
   void _updateRepoConfig(void Function(AlembicRepoConfig value) mutate) {
@@ -310,84 +335,254 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
     RepositoryDetail? detail = _detail;
     AlembicRepoConfig? repoConfig = _repoConfig;
     bool ready = repository != null && detail != null && repoConfig != null;
-    return ModalBackdrop(
-      surfaceClip: false,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          minWidth: RepositoryDetailDialog.minDialogWidth,
-          maxWidth: RepositoryDetailDialog.maxDialogWidth,
-          maxHeight: RepositoryDetailDialog.maxDialogHeight,
-        ),
-        child: AlembicPanel(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              if (repository == null)
-                AlembicSectionHeader(
-                  title: widget.fullName,
-                  trailing: AlembicToolbarButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    label: 'Close',
-                    leadingIcon: LucideIcons.x,
-                    iconOnly: true,
-                  ),
-                )
-              else
-                _DetailHeader(
-                  repository: repository,
-                  state: detail?.state,
-                  onOpenGitHub: _openOnGitHub,
-                  onClose: () => Navigator.of(context).pop(),
+    ThemeData theme = Theme.of(context);
+    return m.CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            Navigator.of(context).maybePop(),
+      },
+      child: Focus(
+        autofocus: true,
+        child: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: RepositoryDetailDialog.maxDialogWidth,
+                  maxHeight: RepositoryDetailDialog.maxDialogHeight,
                 ),
-              const Gap(AlembicShadcnTokens.gapMd),
-              if (_successMessage != null) ...<Widget>[
-                _StatusBanner(
-                  tone: _BannerTone.success,
-                  message: _successMessage!,
-                ),
-                const Gap(AlembicShadcnTokens.gapMd),
-              ],
-              if (_errorMessage != null) ...<Widget>[
-                _StatusBanner(
-                  tone: _BannerTone.error,
-                  message: _errorMessage!,
-                ),
-                const Gap(AlembicShadcnTokens.gapMd),
-              ],
-              Flexible(
-                child: SingleChildScrollView(
-                  child: ready
-                      ? _DetailContent(
-                          repository: repository,
-                          detail: detail,
-                          repoConfig: repoConfig,
-                          workEntries: _workEntries,
-                          busyAction: _busyAction,
-                          archiveEnabled: _archiveEnabled,
-                          enrolledInArchiveMaster: _enrolledInArchiveMaster,
-                          accounts: loadGitAccounts(),
-                          openDirectoryController: _openDirectoryController,
-                          onAction: _handleAction,
-                          onEditorChanged: _setEditorOverride,
-                          onGitToolChanged: _setGitToolOverride,
-                          onAccountChanged: _setAccountOverride,
-                          onOpenDirectoryChanged: _setOpenDirectory,
-                        )
-                      : _DetailLoadingState(
-                          error: _loadError,
+                child: ModalBackdrop(
+                  surfaceClip: false,
+                  child: AlembicPanel(
+                    padding: EdgeInsets.zero,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 18, 16, 16),
+                          child: repository == null
+                              ? AlembicSectionHeader(
+                                  title: widget.fullName,
+                                  trailing: AlembicToolbarButton(
+                                    onPressed: () =>
+                                        Navigator.of(context).pop(),
+                                    label: 'Close',
+                                    leadingIcon: LucideIcons.x,
+                                    iconOnly: true,
+                                  ),
+                                )
+                              : _DetailHeader(
+                                  repository: repository,
+                                  state: detail?.state,
+                                  onOpenGitHub: () =>
+                                      unawaited(_openOnGitHub()),
+                                  onClose: () => Navigator.of(context).pop(),
+                                ),
                         ),
+                        if (ready) ...<Widget>[
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+                            child: _DetailToolbar(
+                              state: detail.state,
+                              busyAction: _busyAction,
+                              onAction: _handleAction,
+                            ),
+                          ),
+                          Divider(
+                              height: 1,
+                              thickness: 1,
+                              color: theme.colorScheme.border),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 20, vertical: 12),
+                            child: _InspectorSections(
+                              selected: _section,
+                              onChanged: (_InspectorSection section) =>
+                                  setState(() => _section = section),
+                            ),
+                          ),
+                        ],
+                        if (_successMessage != null) ...<Widget>[
+                          Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 20),
+                              child: _StatusBanner(
+                                tone: _BannerTone.success,
+                                message: _successMessage!,
+                              )),
+                          const Gap(AlembicShadcnTokens.gapMd),
+                        ],
+                        if (_errorMessage != null) ...<Widget>[
+                          Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 20),
+                              child: _StatusBanner(
+                                tone: _BannerTone.error,
+                                message: _errorMessage!,
+                              )),
+                          const Gap(AlembicShadcnTokens.gapMd),
+                        ],
+                        Expanded(
+                          child: SingleChildScrollView(
+                            key: ValueKey<_InspectorSection>(_section),
+                            padding: const EdgeInsets.fromLTRB(20, 6, 20, 20),
+                            child: ready
+                                ? _DetailContent(
+                                    section: _section,
+                                    repository: repository,
+                                    detail: detail,
+                                    repoConfig: repoConfig,
+                                    workEntries: _workEntries,
+                                    busyAction: _busyAction,
+                                    archiveEnabled: _archiveEnabled,
+                                    enrolledInArchiveMaster:
+                                        _enrolledInArchiveMaster,
+                                    accounts: loadGitAccounts(),
+                                    openDirectoryController:
+                                        _openDirectoryController,
+                                    onAction: _handleAction,
+                                    onEditorChanged: _setEditorOverride,
+                                    onGitToolChanged: _setGitToolOverride,
+                                    onAccountChanged: _setAccountOverride,
+                                    onOpenDirectoryChanged: _setOpenDirectory,
+                                  )
+                                : _DetailLoadingState(
+                                    error: _loadError,
+                                    onRetry: () => unawaited(_refreshDetail()),
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+        }),
       ),
     );
   }
 }
 
+enum _InspectorSection {
+  overview('Overview'),
+  configuration('Configuration'),
+  storage('Storage');
+
+  final String label;
+  const _InspectorSection(this.label);
+}
+
+class _InspectorSections extends StatelessWidget {
+  final _InspectorSection selected;
+  final ValueChanged<_InspectorSection> onChanged;
+
+  const _InspectorSections({required this.selected, required this.onChanged});
+
+  void _step(int direction) {
+    List<_InspectorSection> sections = _InspectorSection.values;
+    onChanged(
+        sections[(sections.indexOf(selected) + direction) % sections.length]);
+  }
+
+  @override
+  Widget build(BuildContext context) => Align(
+        alignment: Alignment.centerLeft,
+        child: Focus(
+            onKeyEvent: (FocusNode node, KeyEvent event) {
+              if (event is! KeyDownEvent) return KeyEventResult.ignored;
+              if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+                _step(1);
+                return KeyEventResult.handled;
+              }
+              if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+                _step(-1);
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: AlembicSurface(
+              tone: AlembicSurfaceTone.inset,
+              padding: const EdgeInsets.all(3),
+              child: Wrap(
+                children: <Widget>[
+                  for (_InspectorSection section in _InspectorSection.values)
+                    Semantics(
+                      selected: selected == section,
+                      child: Button(
+                        disableHoverEffect: true,
+                        disableTransition: true,
+                        enableFeedback: false,
+                        key: ValueKey<String>(
+                            'inspector-section-${section.label}'),
+                        style: selected == section
+                            ? const ButtonStyle.secondary(
+                                density: ButtonDensity.dense)
+                            : const ButtonStyle.ghost(
+                                density: ButtonDensity.dense),
+                        onPressed: () => onChanged(section),
+                        child: Text(section.label,
+                            style: const TextStyle(fontSize: 12)),
+                      ),
+                    ),
+                ],
+              ),
+            )),
+      );
+}
+
+class _DetailToolbar extends StatelessWidget {
+  final String state;
+  final String? busyAction;
+  final ValueChanged<_DetailAction> onAction;
+
+  const _DetailToolbar(
+      {required this.state, required this.busyAction, required this.onAction});
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: <Widget>[
+          _DetailActionButton(
+            action: state == RepoStateValue.cloud
+                ? _DetailAction.clone
+                : state == RepoStateValue.archived
+                    ? _DetailAction.unarchive
+                    : _DetailAction.open,
+            onAction: onAction,
+            enabled: busyAction == null,
+            prominent: true,
+          ),
+          if (state != RepoStateValue.active)
+            _DetailActionButton(
+              action: _DetailAction.open,
+              onAction: onAction,
+              enabled: busyAction == null,
+            ),
+          _DetailActionButton(
+              action: _DetailAction.reveal,
+              onAction: onAction,
+              enabled: busyAction == null),
+          _DetailActionButton(
+              action: _DetailAction.pull,
+              onAction: onAction,
+              enabled: busyAction == null),
+          _DetailActionButton(
+              action: _DetailAction.fork,
+              onAction: onAction,
+              enabled: busyAction == null),
+          if (busyAction != null) _BusyIndicator(label: busyAction!),
+        ],
+      );
+}
+
 class _DetailContent extends StatelessWidget {
+  final _InspectorSection section;
   final Repository repository;
   final RepositoryDetail detail;
   final AlembicRepoConfig repoConfig;
@@ -404,6 +599,7 @@ class _DetailContent extends StatelessWidget {
   final ValueChanged<String> onOpenDirectoryChanged;
 
   const _DetailContent({
+    required this.section,
     required this.repository,
     required this.detail,
     required this.repoConfig,
@@ -424,46 +620,50 @@ class _DetailContent extends StatelessWidget {
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _SummaryCard(
-            repository: repository,
-            detail: detail,
-            archiveEnabled: archiveEnabled,
-          ),
-          const Gap(AlembicShadcnTokens.gapMd),
-          _ActionsCard(
-            state: detail.state,
-            archiveEnabled: archiveEnabled,
-            busyAction: busyAction,
-            onAction: onAction,
-          ),
-          if (workEntries.isNotEmpty) ...<Widget>[
+          if (section == _InspectorSection.overview) ...<Widget>[
+            _SummaryCard(
+              repository: repository,
+              detail: detail,
+              archiveEnabled: archiveEnabled,
+            ),
             const Gap(AlembicShadcnTokens.gapMd),
-            _WorkCard(entries: workEntries),
+            if (workEntries.isNotEmpty) ...<Widget>[
+              const Gap(AlembicShadcnTokens.gapMd),
+              _WorkCard(entries: workEntries),
+            ],
           ],
-          if (archiveEnabled) ...<Widget>[
-            const Gap(AlembicShadcnTokens.gapMd),
-            _ArchiveMasterCard(
-              enrolled: enrolledInArchiveMaster,
-              masterState: detail.archiveMaster,
-              busy: busyAction != null,
+          if (section == _InspectorSection.storage) ...<Widget>[
+            _StorageActions(
+              state: detail.state,
+              archiveEnabled: archiveEnabled,
+              busyAction: busyAction,
               onAction: onAction,
             ),
+            if (archiveEnabled) ...<Widget>[
+              const Gap(AlembicShadcnTokens.gapMd),
+              _ArchiveMasterCard(
+                enrolled: enrolledInArchiveMaster,
+                masterState: detail.archiveMaster,
+                busy: busyAction != null,
+                onAction: onAction,
+              ),
+            ],
+            const Gap(24),
+            _PathsCard(
+              detail: detail,
+              archiveEnabled: archiveEnabled,
+            ),
           ],
-          const Gap(AlembicShadcnTokens.gapMd),
-          _OverridesCard(
-            repoConfig: repoConfig,
-            accounts: accounts,
-            openDirectoryController: openDirectoryController,
-            onEditorChanged: onEditorChanged,
-            onGitToolChanged: onGitToolChanged,
-            onAccountChanged: onAccountChanged,
-            onOpenDirectoryChanged: onOpenDirectoryChanged,
-          ),
-          const Gap(AlembicShadcnTokens.gapMd),
-          _PathsCard(
-            detail: detail,
-            archiveEnabled: archiveEnabled,
-          ),
+          if (section == _InspectorSection.configuration)
+            _OverridesCard(
+              repoConfig: repoConfig,
+              accounts: accounts,
+              openDirectoryController: openDirectoryController,
+              onEditorChanged: onEditorChanged,
+              onGitToolChanged: onGitToolChanged,
+              onAccountChanged: onAccountChanged,
+              onOpenDirectoryChanged: onOpenDirectoryChanged,
+            ),
         ],
       );
 }
@@ -508,6 +708,7 @@ class _DetailHeader extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
         AlembicIconTile(
+          size: 34,
           child: m.Icon(
             _stateIcon,
             size: 20,
@@ -519,25 +720,20 @@ class _DetailHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Row(
-                children: <Widget>[
-                  Text(
-                    '$owner / ',
-                    style: theme.typography.small.copyWith(
-                      color: theme.colorScheme.mutedForeground,
-                    ),
-                  ),
-                  Flexible(
-                    child: Text(
-                      repository.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.typography.large.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
+              Text.rich(
+                TextSpan(children: <InlineSpan>[
+                  TextSpan(
+                      text: '$owner / ',
+                      style: theme.typography.small.copyWith(
+                        color: theme.colorScheme.mutedForeground,
+                      )),
+                  TextSpan(
+                      text: repository.name,
+                      style: theme.typography.medium
+                          .copyWith(fontWeight: FontWeight.w600)),
+                ]),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
               const Gap(AlembicShadcnTokens.gapXs),
               Wrap(
@@ -547,7 +743,11 @@ class _DetailHeader extends StatelessWidget {
                 children: <Widget>[
                   if (state != null)
                     AlembicBadge(
-                      label: state!.toUpperCase(),
+                      label: switch (state) {
+                        RepoStateValue.active => 'In workspace',
+                        RepoStateValue.archived => 'Archived',
+                        _ => 'On GitHub',
+                      },
                       tone: _stateTone,
                     ),
                   if (repository.isPrivate)
@@ -580,6 +780,18 @@ class _DetailHeader extends StatelessWidget {
                     ),
                 ],
               ),
+              if (repository.description.trim().isNotEmpty) ...<Widget>[
+                const Gap(8),
+                Text(
+                  repository.description.trim(),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.typography.xSmall.copyWith(
+                    color: theme.colorScheme.mutedForeground,
+                    height: 1.4,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -618,49 +830,65 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     ThemeData theme = Theme.of(context);
-    String description = repository.description.trim();
     return _DetailCard(
-      title: 'Summary',
+      title: 'Repository',
       children: <Widget>[
-        Text(
-          description.isEmpty ? 'No description provided.' : description,
-          style: theme.typography.small.copyWith(
-            color: description.isEmpty
-                ? theme.colorScheme.mutedForeground
-                : theme.colorScheme.foreground,
+        _MasterInfoRow(
+            label: 'Default branch',
+            value: repository.defaultBranch.isEmpty
+                ? 'Not reported'
+                : repository.defaultBranch,
+            mono: true),
+        _MasterInfoRow(
+            label: 'Visibility',
+            value: repository.isPrivate ? 'Private' : 'Public'),
+        _MasterInfoRow(
+            label: 'Stars / forks',
+            value: '${repository.stargazersCount} / ${repository.forksCount}'),
+        _MasterInfoRow(
+            label: 'Account',
+            value: detail.accountLogin == null
+                ? 'Global default'
+                : '@${detail.accountLogin}'),
+        const Gap(20),
+        AlembicSectionHeader(title: 'Local activity'),
+        const Gap(12),
+        _MasterInfoRow(
+            label: 'Last opened',
+            value: detail.lastOpenMs?.relativeTimeLabel ?? 'Never'),
+        _MasterInfoRow(
+            label: 'Last modified',
+            value: detail.latestFileModificationMs?.relativeTimeLabel ??
+                'Not recorded'),
+        _MasterInfoRow(
+            label: 'Auto-archive',
+            value: !archiveEnabled
+                ? 'Disabled'
+                : detail.state != RepoStateValue.active
+                    ? 'Not in workspace'
+                    : detail.daysUntilArchival > 0
+                        ? 'In ${detail.daysUntilArchival} days'
+                        : 'Eligible now'),
+        const Gap(20),
+        _PathRow(label: 'Working copy', path: detail.repoPath),
+        if (repository.description.trim().isEmpty)
+          Text(
+            'No repository description provided.',
+            style: theme.typography.xSmall
+                .copyWith(color: theme.colorScheme.mutedForeground),
           ),
-        ),
-        const Gap(AlembicShadcnTokens.gapMd),
-        Wrap(
-          spacing: AlembicShadcnTokens.gapSm,
-          runSpacing: AlembicShadcnTokens.gapXs,
-          children: <Widget>[
-            AlembicBadge(label: 'Branch ${repository.defaultBranch}'),
-            AlembicBadge(label: '${repository.stargazersCount} stars'),
-            AlembicBadge(label: '${repository.forksCount} forks'),
-            if (archiveEnabled && detail.daysUntilArchival > 0)
-              AlembicBadge(
-                label: 'Auto-archive in ${detail.daysUntilArchival}d',
-                tone: AlembicBadgeTone.secondary,
-              ),
-            if (detail.lastOpenMs != null)
-              AlembicBadge(
-                label: 'Last opened ${detail.lastOpenMs!.relativeTimeLabel}',
-              ),
-          ],
-        ),
       ],
     );
   }
 }
 
-class _ActionsCard extends StatelessWidget {
+class _StorageActions extends StatelessWidget {
   final String state;
   final bool archiveEnabled;
   final String? busyAction;
   final ValueChanged<_DetailAction> onAction;
 
-  const _ActionsCard({
+  const _StorageActions({
     required this.state,
     required this.archiveEnabled,
     required this.busyAction,
@@ -673,34 +901,16 @@ class _ActionsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     ThemeData theme = Theme.of(context);
     return _DetailCard(
-      title: 'Actions',
+      title: 'Local storage',
+      subtitle: archiveEnabled
+          ? 'Move copies between the workspace and local archives.'
+          : 'Archiving is disabled in Settings.',
       trailing: _busy ? _BusyIndicator(label: busyAction!) : null,
       children: <Widget>[
         Wrap(
           spacing: AlembicShadcnTokens.gapSm,
           runSpacing: AlembicShadcnTokens.gapSm,
           children: <Widget>[
-            _DetailActionButton(
-              action: _DetailAction.open,
-              onAction: onAction,
-              enabled: !_busy,
-              prominent: true,
-            ),
-            _DetailActionButton(
-              action: _DetailAction.reveal,
-              onAction: onAction,
-              enabled: !_busy,
-            ),
-            _DetailActionButton(
-              action: _DetailAction.pull,
-              onAction: onAction,
-              enabled: !_busy,
-            ),
-            _DetailActionButton(
-              action: _DetailAction.fork,
-              onAction: onAction,
-              enabled: !_busy,
-            ),
             if (state == RepoStateValue.active && archiveEnabled)
               _DetailActionButton(
                 action: _DetailAction.archive,
@@ -716,12 +926,6 @@ class _ActionsCard extends StatelessWidget {
             if (state == RepoStateValue.archived && archiveEnabled)
               _DetailActionButton(
                 action: _DetailAction.updateArchive,
-                onAction: onAction,
-                enabled: !_busy,
-              ),
-            if (state == RepoStateValue.cloud)
-              _DetailActionButton(
-                action: _DetailAction.clone,
                 onAction: onAction,
                 enabled: !_busy,
               ),
@@ -933,7 +1137,7 @@ class _MasterInfoRow extends StatelessWidget {
       child: Row(
         children: <Widget>[
           SizedBox(
-            width: 110,
+            width: 124,
             child: Text(
               label,
               style: theme.typography.xSmall.copyWith(
@@ -943,7 +1147,7 @@ class _MasterInfoRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: Text(
+            child: SelectableText(
               value,
               style: mono
                   ? theme.typography.mono.copyWith(fontSize: 12)
@@ -1016,10 +1220,9 @@ class _OverridesCard extends StatelessWidget {
     ];
     GitAccount? currentAccount = findGitAccountById(repoConfig.accountId);
     return AlembicSettingsPane(
-      title: 'Overrides',
+      title: 'Configuration',
       subtitle:
-          'Repository-specific tools and account. Pick "$_globalDefaultLabel" '
-          'to clear an override.',
+          'Tools and account for this repository. Changes save automatically.',
       children: <Widget>[
         AlembicSettingsMenuRow<_OverrideOption<ApplicationTool>>(
           title: 'Editor',
@@ -1106,22 +1309,30 @@ class _PathRow extends StatelessWidget {
   Widget build(BuildContext context) {
     ThemeData theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.only(
-        bottom: AlembicShadcnTokens.gapSm,
-      ),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(
-            label,
-            style: theme.typography.xSmall.copyWith(
-              color: theme.colorScheme.mutedForeground,
-              fontWeight: FontWeight.w600,
+          Row(children: <Widget>[
+            Expanded(
+                child: Text(label,
+                    style: theme.typography.xSmall.copyWith(
+                      color: theme.colorScheme.mutedForeground,
+                      fontWeight: FontWeight.w600,
+                    ))),
+            AlembicToolbarButton(
+              label: 'Copy $label path',
+              compact: true,
+              quiet: true,
+              iconOnly: true,
+              leadingIcon: LucideIcons.copy,
+              onPressed: () =>
+                  unawaited(Clipboard.setData(ClipboardData(text: path))),
             ),
-          ),
+          ]),
           const Gap(2),
           SelectableText(
-            compressPath(path) ?? path,
+            path,
             style: theme.typography.mono.copyWith(fontSize: 12),
           ),
         ],
@@ -1144,19 +1355,17 @@ class _DetailCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => AlembicPanel(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            AlembicSectionHeader(
-              title: title,
-              subtitle: subtitle,
-              trailing: trailing,
-            ),
-            const Gap(AlembicShadcnTokens.gapMd),
-            ...children,
-          ],
-        ),
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          AlembicSectionHeader(
+            title: title,
+            subtitle: subtitle,
+            trailing: trailing,
+          ),
+          const Gap(AlembicShadcnTokens.gapMd),
+          ...children,
+        ],
       );
 }
 
@@ -1181,6 +1390,7 @@ class _DetailActionButton extends StatelessWidget {
   Widget build(BuildContext context) => AlembicToolbarButton(
         onPressed: enabled ? () => onAction(action) : null,
         label: action.label,
+        compact: true,
         prominent: prominent,
         destructive: destructive,
         tooltip: tooltip,
@@ -1258,9 +1468,11 @@ class _StatusBanner extends StatelessWidget {
 
 class _DetailLoadingState extends StatelessWidget {
   final String? error;
+  final VoidCallback onRetry;
 
   const _DetailLoadingState({
     required this.error,
+    required this.onRetry,
   });
 
   @override
@@ -1294,6 +1506,9 @@ class _DetailLoadingState extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: theme.typography.small,
                   ),
+                  const Gap(16),
+                  AlembicToolbarButton(
+                      label: 'Retry', onPressed: onRetry, compact: true),
                 ],
         ),
       ),

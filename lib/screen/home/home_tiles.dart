@@ -23,6 +23,9 @@ class HomeActionTile extends StatelessWidget {
     Color titleColor = theme.colorScheme.foreground;
 
     return Button(
+      disableHoverEffect: true,
+      disableTransition: true,
+      enableFeedback: false,
       onPressed: onPressed,
       style: prominent
           ? const ButtonStyle.secondary()

@@ -8,6 +8,9 @@ enum AlembicTrayMenuAction {
   refresh,
   import,
   settings,
+  clone,
+  search,
+  toggleSidebar,
   resetPosition,
   restart,
   quit;
@@ -18,6 +21,9 @@ enum AlembicTrayMenuAction {
         'refresh' => AlembicTrayMenuAction.refresh,
         'import' => AlembicTrayMenuAction.import,
         'settings' => AlembicTrayMenuAction.settings,
+        'clone' => AlembicTrayMenuAction.clone,
+        'search' => AlembicTrayMenuAction.search,
+        'toggleSidebar' => AlembicTrayMenuAction.toggleSidebar,
         'resetPosition' => AlembicTrayMenuAction.resetPosition,
         'restart' => AlembicTrayMenuAction.restart,
         'quit' => AlembicTrayMenuAction.quit,
@@ -133,6 +139,7 @@ class MacOSTrayService {
   }
 
   Future<void> setActivationPolicy(String mode) async {
+    _attachHandler();
     try {
       await _channel.invokeMethod<void>(
         'setActivationPolicy',

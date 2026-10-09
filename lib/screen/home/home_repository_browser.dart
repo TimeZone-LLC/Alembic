@@ -1,12 +1,17 @@
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/repository_runtime.dart';
+import 'package:alembic/main.dart' as app;
+import 'package:alembic/screen/home/home_repository_metadata.dart';
 import 'package:alembic/screen/home/home_repository_rows.dart';
 import 'package:alembic/screen/home/home_tiles.dart';
 import 'package:alembic/screen/home/home_view_filters.dart';
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:alembic/util/git_accounts.dart';
+import 'package:alembic/util/clone_transport.dart';
+import 'package:alembic/util/repo_config.dart';
 import 'package:arcane/arcane.dart';
 import 'package:flutter/widgets.dart' as m;
+import 'package:flutter/services.dart';
 import 'package:github/github.dart';
 
 class HomeRepositoryBrowserPane extends StatefulWidget {
@@ -54,6 +59,11 @@ class _HomeRepositoryBrowserPaneState extends State<HomeRepositoryBrowserPane> {
 
   late final ScrollController _scrollController;
   late final HomeSelectionController _selection;
+  final m.FocusNode _listFocus =
+      m.FocusNode(debugLabel: 'Repository list', skipTraversal: true);
+  final Map<String, m.GlobalKey> _rowKeys = <String, m.GlobalKey>{};
+  final HomeRepositoryMetadataCache _metadataCache =
+      HomeRepositoryMetadataCache();
 
   @override
   void initState() {
@@ -66,15 +76,20 @@ class _HomeRepositoryBrowserPaneState extends State<HomeRepositoryBrowserPane> {
   void dispose() {
     _scrollController.dispose();
     _selection.dispose();
+    _listFocus.dispose();
     super.dispose();
   }
 
   @override
   void didUpdateWidget(covariant HomeRepositoryBrowserPane oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _selection.prune(<String>{
+    final Set<String> visibleKeys = <String>{
       for (HomeRepositoryEntry entry in widget.entries) entry.lowerKey,
-    });
+    };
+    _selection.prune(visibleKeys);
+    _rowKeys.removeWhere(
+        (String key, m.GlobalKey value) => !visibleKeys.contains(key));
+    _metadataCache.retain(visibleKeys);
   }
 
   String get _subtitle {
@@ -158,23 +173,106 @@ class _HomeRepositoryBrowserPaneState extends State<HomeRepositoryBrowserPane> {
                   onClearFilters: widget.onClearFilters,
                   onImportRepository: widget.onImportRepository,
                 )
-              : _RepositoryList(
-                  scrollController: _scrollController,
-                  entries: widget.entries,
-                  runtime: widget.runtime,
-                  revision: widget.revision,
-                  archiveEnabled: widget.archiveEnabled,
-                  keyPrefix: _repositoryListKeyPrefix,
-                  selection: _selection,
-                  accountForRepository: widget.accountForRepository,
-                  canForkRepository: widget.canForkRepository,
-                  onPrimaryAction: widget.onPrimaryAction,
-                  onRepositoryAction: widget.onRepositoryAction,
-                  onShowDetails: widget.onShowDetails,
-                ),
+              : m.Focus(
+                  focusNode: _listFocus,
+                  onKeyEvent: _handleListKey,
+                  child: _RepositoryList(
+                    scrollController: _scrollController,
+                    entries: widget.entries,
+                    runtime: widget.runtime,
+                    revision: widget.revision,
+                    archiveEnabled: widget.archiveEnabled,
+                    keyPrefix: _repositoryListKeyPrefix,
+                    selection: _selection,
+                    metadataCache: _metadataCache,
+                    rowKeys: _rowKeys,
+                    onSelect: _selectEntry,
+                    accountForRepository: widget.accountForRepository,
+                    canForkRepository: widget.canForkRepository,
+                    onPrimaryAction: widget.onPrimaryAction,
+                    onRepositoryAction: widget.onRepositoryAction,
+                    onShowDetails: widget.onShowDetails,
+                  )),
         ),
       ],
     );
+  }
+
+  List<String> get _entryOrder => <String>[
+        for (HomeRepositoryEntry entry in widget.entries) entry.lowerKey,
+      ];
+
+  void _selectEntry(HomeRepositoryEntry entry) {
+    final HardwareKeyboard keyboard = HardwareKeyboard.instance;
+    _selection.select(entry.lowerKey, _entryOrder,
+        extend: keyboard.isShiftPressed,
+        toggle: keyboard.isMetaPressed || keyboard.isControlPressed);
+    _listFocus.requestFocus();
+  }
+
+  m.KeyEventResult _handleListKey(m.FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return m.KeyEventResult.ignored;
+    }
+    final HardwareKeyboard keyboard = HardwareKeyboard.instance;
+    final bool command = keyboard.isMetaPressed || keyboard.isControlPressed;
+    final LogicalKeyboardKey key = event.logicalKey;
+    if (command && key == LogicalKeyboardKey.keyA) {
+      _selectVisible();
+    } else if (key == LogicalKeyboardKey.escape) {
+      _selection.clear();
+    } else if (key == LogicalKeyboardKey.arrowDown ||
+        key == LogicalKeyboardKey.arrowUp) {
+      _selection.move(_entryOrder, key == LogicalKeyboardKey.arrowDown ? 1 : -1,
+          extend: keyboard.isShiftPressed);
+      _listFocus.requestFocus();
+      _revealCursor(towardStart: key == LogicalKeyboardKey.arrowUp);
+    } else if (key == LogicalKeyboardKey.enter ||
+        (command && key == LogicalKeyboardKey.keyI)) {
+      final String? cursor = _selection.cursor;
+      if (cursor == null || !_selection.isSelected(cursor)) {
+        return m.KeyEventResult.ignored;
+      }
+      final HomeRepositoryEntry entry = widget.entries
+          .firstWhere((HomeRepositoryEntry entry) => entry.lowerKey == cursor);
+      if (command) {
+        widget.onShowDetails(entry);
+      } else if (!entry.syncing &&
+          !widget.runtime.repoWork.value.any((RepositoryWork work) =>
+              work.repository.fullName.toLowerCase() == cursor)) {
+        widget.onPrimaryAction(entry);
+      }
+    } else {
+      return m.KeyEventResult.ignored;
+    }
+    return m.KeyEventResult.handled;
+  }
+
+  void _revealCursor({required bool towardStart}) {
+    final String? cursor = _selection.cursor;
+    if (cursor == null || !_scrollController.hasClients) return;
+    final BuildContext? rowContext = _rowKeys[cursor]?.currentContext;
+    if (rowContext != null) {
+      m.Scrollable.ensureVisible(rowContext,
+          duration: const Duration(milliseconds: 100),
+          alignmentPolicy: towardStart
+              ? m.ScrollPositionAlignmentPolicy.keepVisibleAtStart
+              : m.ScrollPositionAlignmentPolicy.keepVisibleAtEnd);
+      return;
+    }
+    final int index = _entryOrder.indexOf(cursor);
+    final m.ScrollPosition position = _scrollController.position;
+    final double estimatedExtent =
+        (position.maxScrollExtent + position.viewportDimension) /
+            widget.entries.length;
+    _scrollController
+        .jumpTo((index * estimatedExtent).clamp(0, position.maxScrollExtent));
+    m.WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final BuildContext? context = _rowKeys[cursor]?.currentContext;
+        if (context != null) m.Scrollable.ensureVisible(context);
+      }
+    });
   }
 
   void _selectVisible() {
@@ -343,6 +441,9 @@ class _RepositoryList extends StatelessWidget {
   final bool archiveEnabled;
   final String keyPrefix;
   final HomeSelectionController selection;
+  final HomeRepositoryMetadataCache metadataCache;
+  final Map<String, m.GlobalKey> rowKeys;
+  final void Function(HomeRepositoryEntry entry) onSelect;
   final GitAccount? Function(Repository repository) accountForRepository;
   final bool Function(Repository repository) canForkRepository;
   final HomeEntryCallback onPrimaryAction;
@@ -357,6 +458,9 @@ class _RepositoryList extends StatelessWidget {
     required this.archiveEnabled,
     required this.keyPrefix,
     required this.selection,
+    required this.metadataCache,
+    required this.rowKeys,
+    required this.onSelect,
     required this.accountForRepository,
     required this.canForkRepository,
     required this.onPrimaryAction,
@@ -366,51 +470,80 @@ class _RepositoryList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Object configuration = (
+      config.json,
+      app.box.get(gitAccountsStorageKey),
+      app.box.get(gitAccountsPrimaryKey),
+      app.box.get(gitAccountsLegacyTokenKey),
+      loadCloneTransportMode(),
+    );
     Map<String, int> indexByRepository = <String, int>{
       for (int index = 0; index < entries.length; index++)
         entries[index].lowerKey: index,
     };
-    return Scrollbar(
-      controller: scrollController,
-      child: m.CustomScrollView(
-        controller: scrollController,
-        slivers: <Widget>[
-          m.SliverPadding(
+    return LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+      final bool uniformRows = constraints.maxWidth >= 720 &&
+          m.MediaQuery.textScalerOf(context).scale(14) <= 14;
+      return m.ScrollConfiguration(
+        behavior: m.ScrollConfiguration.of(context).copyWith(scrollbars: false),
+        child: Scrollbar(
+          controller: scrollController,
+          child: m.ListView.builder(
+            controller: scrollController,
             padding: const EdgeInsets.only(bottom: AlembicShadcnTokens.gapSm),
-            sliver: m.SliverList.builder(
-              itemCount: entries.length,
-              findChildIndexCallback: (key) {
-                if (key is! m.ValueKey<String>) {
-                  return null;
-                }
-                String value = key.value;
-                if (!value.startsWith(keyPrefix)) {
-                  return null;
-                }
-                String fullName = value.substring(keyPrefix.length);
-                return indexByRepository[fullName];
-              },
-              itemBuilder: (context, index) {
-                HomeRepositoryEntry entry = entries[index];
-                return HomeRepositoryRow(
+            itemExtent: uniformRows ? 70 : null,
+            itemCount: entries.length,
+            findChildIndexCallback: (key) {
+              if (key is! m.ValueKey<String>) {
+                return null;
+              }
+              String value = key.value;
+              if (!value.startsWith(keyPrefix)) {
+                return null;
+              }
+              String fullName = value.substring(keyPrefix.length);
+              return indexByRepository[fullName];
+            },
+            itemBuilder: (context, index) {
+              HomeRepositoryEntry entry = entries[index];
+              final GitAccount? account =
+                  accountForRepository(entry.repository);
+              return m.KeyedSubtree(
                   key: m.ValueKey<String>('$keyPrefix${entry.lowerKey}'),
-                  entry: entry,
-                  runtime: runtime,
-                  revision: revision,
-                  archiveEnabled: archiveEnabled,
-                  account: accountForRepository(entry.repository),
-                  canFork: canForkRepository(entry.repository),
-                  selection: selection,
-                  showSeparator: index != entries.length - 1,
-                  onPrimaryAction: onPrimaryAction,
-                  onAction: onRepositoryAction,
-                  onShowDetails: onShowDetails,
-                );
-              },
-            ),
+                  child: HomeRepositoryRow(
+                    key: rowKeys.putIfAbsent(
+                        entry.lowerKey, () => m.GlobalKey()),
+                    onSelect: () => onSelect(entry),
+                    entry: entry,
+                    runtime: runtime,
+                    revision: revision,
+                    archiveEnabled: archiveEnabled,
+                    account: account,
+                    metadata: metadataCache.forRepository(
+                      repository: ArcaneRepository(
+                        repository: entry.repository,
+                        runtime: runtime,
+                        accountId: account?.id,
+                      ),
+                      revision: revision,
+                      configuration: (
+                        configuration,
+                        getRepoConfig(entry.repository).json,
+                        entry.repoState,
+                      ),
+                    ),
+                    canFork: canForkRepository(entry.repository),
+                    selection: selection,
+                    showSeparator: index != entries.length - 1,
+                    onPrimaryAction: onPrimaryAction,
+                    onAction: onRepositoryAction,
+                    onShowDetails: onShowDetails,
+                  ));
+            },
           ),
-        ],
-      ),
-    );
+        ),
+      );
+    });
   }
 }

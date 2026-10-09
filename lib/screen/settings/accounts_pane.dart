@@ -6,6 +6,7 @@ import 'package:alembic/main.dart';
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:alembic/util/git_accounts.dart';
 import 'package:arcane/arcane.dart';
+import 'package:flutter/widgets.dart' as m;
 
 class AccountsSettingsPane extends StatefulWidget {
   final VoidCallback? onLogout;
@@ -209,8 +210,7 @@ class _AccountsSettingsPaneState extends State<AccountsSettingsPane> {
         if (accounts.isEmpty)
           const AlembicSettingsInfoRow(
             title: 'No accounts',
-            description:
-                'Add a GitHub account below to start syncing repositories.',
+            description: 'Add a GitHub account to start syncing repositories.',
             value: '',
           )
         else
@@ -242,43 +242,18 @@ class _LogoutRow extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: <Widget>[
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                'Log out',
-                style: theme.typography.small.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.destructive,
-                ),
-              ),
-              const Gap(AlembicShadcnTokens.gapXs),
-              Text(
-                'Sign out of this Alembic session and remove all saved git accounts from this device.',
-                style: theme.typography.xSmall.copyWith(
-                  color: theme.colorScheme.mutedForeground,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Gap(AlembicShadcnTokens.gapLg),
-        AlembicToolbarButton(
+  Widget build(BuildContext context) => AlembicSettingsTextFieldRow(
+        title: 'Log out',
+        description:
+            'Sign out and remove all saved GitHub accounts from this device.',
+        child: AlembicToolbarButton(
           label: 'Log out',
           leadingIcon: LucideIcons.logOut,
           destructive: true,
           compact: true,
           onPressed: onLogout,
         ),
-      ],
-    );
-  }
+      );
 }
 
 class _AccountRow extends StatelessWidget {
@@ -311,27 +286,37 @@ class _AccountRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Expanded(
-          child: _AccountRowInfo(
-            account: account,
-            isPrimary: isPrimary,
-            descriptionLine: _descriptionLine(),
-            theme: theme,
-          ),
-        ),
-        const Gap(AlembicShadcnTokens.gapMd),
-        _AccountRowActions(
-          busy: busy,
-          onRename: onRename,
-          onReplaceToken: onReplaceToken,
-          onSetPrimary: onSetPrimary,
-          onDelete: onDelete,
-        ),
-      ],
+    final Widget info = _AccountRowInfo(
+      account: account,
+      isPrimary: isPrimary,
+      descriptionLine: _descriptionLine(),
+      theme: Theme.of(context),
+    );
+    final Widget actions = _AccountRowActions(
+      busy: busy,
+      onRename: onRename,
+      onReplaceToken: onReplaceToken,
+      onSetPrimary: onSetPrimary,
+      onDelete: onDelete,
+    );
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double textScale = m.MediaQuery.textScalerOf(context).scale(1);
+        if (constraints.maxWidth < 600 * textScale) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[info, const Gap(12), actions],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Expanded(child: info),
+            const Gap(16),
+            SizedBox(width: 340, child: actions),
+          ],
+        );
+      },
     );
   }
 }
@@ -354,17 +339,18 @@ class _AccountRowInfo extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Row(
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: <Widget>[
-            Flexible(
-              child: Text(
-                account.name,
-                style: theme.typography.small.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            Text(
+              account.name,
+              style: theme.typography.small.copyWith(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            const Gap(AlembicShadcnTokens.gapSm),
             if (isPrimary)
               const AlembicBadge(
                 label: 'Primary',
@@ -376,6 +362,7 @@ class _AccountRowInfo extends StatelessWidget {
         Text(
           descriptionLine,
           style: theme.typography.xSmall.copyWith(
+            fontSize: 12,
             color: theme.colorScheme.mutedForeground,
           ),
         ),

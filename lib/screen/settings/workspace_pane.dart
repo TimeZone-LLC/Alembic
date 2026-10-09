@@ -159,7 +159,7 @@ class _WorkspaceSettingsPaneState extends State<WorkspaceSettingsPane> {
     bool archiveEnabled = config.archiveEnabled;
     return AlembicSettingsPane(
       title: 'Workspace',
-      subtitle: 'Storage paths, archive cadence, and Archive Master.',
+      subtitle: 'Choose where repositories live and when to archive them.',
       children: <Widget>[
         SettingsPathRow(
           title: 'Workspace directory',
@@ -169,10 +169,11 @@ class _WorkspaceSettingsPaneState extends State<WorkspaceSettingsPane> {
           actionLabel: 'Change',
           onPressed: _pickWorkspaceDirectory,
         ),
+        const AlembicSettingsSectionHeader(title: 'Archiving'),
         AlembicSettingsToggleRow(
           title: 'Archive repositories',
           description:
-              'Master switch for archiving. When off, Alembic never archives repositories and hides archive controls.',
+              'Archive inactive repositories automatically and show archive actions.',
           value: archiveEnabled,
           onChanged: _setArchiveEnabled,
         ),
@@ -223,7 +224,10 @@ class _WorkspaceSettingsPaneState extends State<WorkspaceSettingsPane> {
             title: 'Refresh interval (minutes)',
             description:
                 'How often Archive Master should check for new commits and pull them. 60 = hourly, 1440 = daily.',
-            child: Row(
+            child: Wrap(
+              spacing: AlembicShadcnTokens.gapSm,
+              runSpacing: AlembicShadcnTokens.gapSm,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: <Widget>[
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 200),
@@ -235,7 +239,6 @@ class _WorkspaceSettingsPaneState extends State<WorkspaceSettingsPane> {
                     onSubmitted: (_) => _saveInterval(),
                   ),
                 ),
-                const Gap(AlembicShadcnTokens.gapSm),
                 AlembicToolbarButton(
                   label: 'Save',
                   onPressed: _saveInterval,

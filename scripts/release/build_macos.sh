@@ -81,7 +81,18 @@ fi
 ditto -c -k --sequesterRsrc --keepParent "$APP_STAGE" "$OUT/Alembic-$VERSION-macos-universal.zip"
 cp -R "$APP_STAGE" "$DMG_STAGE/Alembic.app"
 ln -s /Applications "$DMG_STAGE/Applications"
-hdiutil create -volname Alembic -srcfolder "$DMG_STAGE" -ov -format UDZO "$OUT/Alembic-$VERSION-macos.dmg"
+DMG_LOG="$ROOT/build/release/dmg-create.log"
+for attempt in 1 2 3; do
+  if hdiutil create -volname Alembic -srcfolder "$DMG_STAGE" -fs HFS+ -ov -format UDZO "$OUT/Alembic-$VERSION-macos.dmg" >"$DMG_LOG" 2>&1; then
+    cat "$DMG_LOG"
+    break
+  fi
+  cat "$DMG_LOG" >&2
+  if [[ "$attempt" == "3" ]] || ! grep -q 'Resource busy' "$DMG_LOG"; then
+    exit 1
+  fi
+  sleep "$attempt"
+done
 
 if [[ "${MACOS_SKIP_SIGNING:-}" != "1" ]]; then
   xcrun notarytool submit "$OUT/Alembic-$VERSION-macos.dmg" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait

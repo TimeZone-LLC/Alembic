@@ -88,37 +88,28 @@ class _GeneralSettingsPaneState extends State<GeneralSettingsPane> {
     DesktopPlatformAdapter adapter = DesktopPlatformAdapter.instance;
     return AlembicSettingsPane(
       title: 'General',
-      subtitle: 'Global startup, tray behavior, appearance, and updates.',
+      subtitle: 'Choose how Alembic opens, looks, and stays up to date.',
       children: <Widget>[
-        _PairedToggleRow(
-          first: AlembicSettingsToggleRow(
-            title: 'Launch at startup',
-            description: 'Add or remove Alembic from desktop startup.',
-            value: _launchAtStartupEnabled,
-            onChanged: _setLaunchAtStartup,
-          ),
-          second: AlembicSettingsToggleRow(
-            title: 'Automatic update checks',
-            description:
-                'Check release metadata once shortly after launch. Alembic never interrupts you about updates.',
-            value: _updateAutoCheckEnabled,
-            onChanged: _setUpdateAutoCheck,
-          ),
+        const AlembicSettingsSectionHeader(title: 'Startup and window'),
+        AlembicSettingsToggleRow(
+          title: 'Launch at startup',
+          description: 'Open Alembic when you sign in to your computer.',
+          value: _launchAtStartupEnabled,
+          onChanged: _setLaunchAtStartup,
         ),
-        _PairedToggleRow(
-          first: AlembicSettingsToggleRow(
-            title: 'Hide window on blur',
-            description: 'Dismiss the window when focus leaves the app.',
-            value: _hideOnBlur,
-            onChanged: _setHideOnBlur,
-          ),
-          second: AlembicSettingsToggleRow(
-            title: 'Start hidden in tray',
-            description: 'Launch Alembic hidden until the tray icon is used.',
-            value: _startHidden,
-            onChanged: _setStartHidden,
-          ),
+        AlembicSettingsToggleRow(
+          title: 'Start hidden in tray',
+          description: 'Keep the window hidden until you click the tray icon.',
+          value: _startHidden,
+          onChanged: _setStartHidden,
         ),
+        AlembicSettingsToggleRow(
+          title: 'Hide window on blur',
+          description: 'Hide the window when you switch to another app.',
+          value: _hideOnBlur,
+          onChanged: _setHideOnBlur,
+        ),
+        const AlembicSettingsSectionHeader(title: 'Appearance'),
         AlembicSettingsMenuRow<ThemeMode>(
           title: 'Theme mode',
           description: 'Choose the desktop appearance mode.',
@@ -127,6 +118,15 @@ class _GeneralSettingsPaneState extends State<GeneralSettingsPane> {
           itemLabel: _themeLabel,
           onSelected: widget.onThemeModeChanged,
         ),
+        const AlembicSettingsSectionHeader(title: 'Updates'),
+        AlembicSettingsToggleRow(
+          title: 'Automatic update checks',
+          description: 'Check for updates shortly after launch.',
+          value: _updateAutoCheckEnabled,
+          onChanged: _setUpdateAutoCheck,
+        ),
+        const _UpdatesStatusRow(),
+        const AlembicSettingsSectionHeader(title: 'Local data'),
         SettingsPathRow(
           title: 'Data location',
           description: 'Where Alembic stores configuration, tokens, and logs.',
@@ -140,58 +140,7 @@ class _GeneralSettingsPaneState extends State<GeneralSettingsPane> {
               'Alembic adapts file explorer, updater, and launch flows by platform.',
           value: adapter.currentPlatform.name,
         ),
-        const AlembicSettingsSectionHeader(title: 'Updates'),
-        const _UpdatesStatusRow(),
       ],
-    );
-  }
-}
-
-class _PairedToggleRow extends StatelessWidget {
-  static const double _pairMinWidth = 780;
-  static const double _stackedDividerPadding = 9;
-
-  final AlembicSettingsToggleRow first;
-  final AlembicSettingsToggleRow second;
-
-  const _PairedToggleRow({
-    required this.first,
-    required this.second,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        if (constraints.maxWidth >= _pairMinWidth) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(child: first),
-              const Gap(AlembicShadcnTokens.gapXl),
-              Expanded(child: second),
-            ],
-          );
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            first,
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                vertical: _stackedDividerPadding,
-              ),
-              child: Divider(
-                height: 1,
-                thickness: 1,
-                color: theme.colorScheme.border,
-              ),
-            ),
-            second,
-          ],
-        );
-      },
     );
   }
 }
@@ -254,14 +203,19 @@ class _UpdatesStatusContent extends StatelessWidget {
             Expanded(
               child: Text(
                 snapshot.statusLine,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
                 style: theme.typography.xSmall.copyWith(
+                  fontSize: 12,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-            const Gap(AlembicShadcnTokens.gapMd),
+          ],
+        ),
+        const Gap(12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: <Widget>[
             if (snapshot.updateAvailable) ...<Widget>[
               AlembicToolbarButton(
                 label: 'Update Now',
@@ -272,7 +226,6 @@ class _UpdatesStatusContent extends StatelessWidget {
                     ? () => unawaited(updateController.install())
                     : null,
               ),
-              const Gap(AlembicShadcnTokens.gapSm),
             ],
             AlembicToolbarButton(
               label: 'Check Now',
@@ -280,7 +233,6 @@ class _UpdatesStatusContent extends StatelessWidget {
               onPressed:
                   _busy ? null : () => unawaited(updateController.checkNow()),
             ),
-            const Gap(AlembicShadcnTokens.gapSm),
             AlembicToolbarButton(
               label: 'Release page',
               trailingIcon: LucideIcons.externalLink,

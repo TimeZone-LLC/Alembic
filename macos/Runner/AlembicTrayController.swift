@@ -472,6 +472,10 @@ final class AlembicTrayController: NSObject {
     @objc private func handleMenuItemClick(_ sender: NSMenuItem) {
         let key: String = (sender.representedObject as? String) ?? ""
         info("handleMenuItemClick: key=%@", key)
+        sendMenuAction(key)
+    }
+
+    func sendMenuAction(_ key: String) {
         eventChannel?.invokeMethod("onMenuItem", arguments: ["key": key])
     }
 

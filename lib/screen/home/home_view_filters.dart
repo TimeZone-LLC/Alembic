@@ -145,42 +145,81 @@ class HomeStats {
 
 class HomeSelectionController extends ChangeNotifier {
   final Set<String> _keys = <String>{};
+  String? _anchor;
+  String? _cursor;
 
   bool get active => _keys.isNotEmpty;
-
   int get count => _keys.length;
-
+  String? get cursor => _cursor;
   bool isSelected(String key) => _keys.contains(key);
 
-  void toggle(String key, bool selected) {
-    bool changed = selected ? _keys.add(key) : _keys.remove(key);
-    if (changed) {
-      notifyListeners();
+  void select(String key, List<String> order,
+      {bool extend = false, bool toggle = false}) {
+    final Set<String> next = <String>{};
+    if (extend && _anchor != null && order.contains(_anchor)) {
+      final int from = order.indexOf(_anchor!);
+      final int to = order.indexOf(key);
+      if (to < 0) return;
+      next.addAll(
+          order.sublist(from < to ? from : to, (from > to ? from : to) + 1));
+      if (toggle) next.addAll(_keys);
+    } else {
+      _anchor = key;
+      if (toggle) {
+        next.addAll(_keys);
+        if (!next.remove(key)) next.add(key);
+      } else {
+        next.add(key);
+      }
     }
+    _cursor = key;
+    _replace(next);
+  }
+
+  void move(List<String> order, int offset, {bool extend = false}) {
+    if (order.isEmpty) return;
+    final int current = _cursor == null ? -1 : order.indexOf(_cursor!);
+    final int index = current < 0
+        ? (offset < 0 ? order.length - 1 : 0)
+        : (current + offset).clamp(0, order.length - 1);
+    select(order[index], order, extend: extend);
+  }
+
+  void toggle(String key, bool selected) {
+    _anchor = key;
+    _cursor = key;
+    final Set<String> next = <String>{..._keys};
+    selected ? next.add(key) : next.remove(key);
+    _replace(next);
   }
 
   void selectAll(Iterable<String> keys) {
-    int before = _keys.length;
-    _keys.addAll(keys);
-    if (_keys.length != before) {
-      notifyListeners();
+    final List<String> order = keys.toList();
+    if (order.isNotEmpty) {
+      _anchor ??= order.first;
+      _cursor ??= order.first;
     }
+    _replace(<String>{..._keys, ...order});
   }
 
   void clear() {
-    if (_keys.isEmpty) {
-      return;
-    }
-    _keys.clear();
-    notifyListeners();
+    _anchor = null;
+    _cursor = null;
+    _replace(<String>{});
   }
 
   void prune(Set<String> validKeys) {
-    int before = _keys.length;
-    _keys.removeWhere((String key) => !validKeys.contains(key));
-    if (_keys.length != before) {
-      notifyListeners();
-    }
+    if (!validKeys.contains(_anchor)) _anchor = null;
+    if (!validKeys.contains(_cursor)) _cursor = null;
+    _replace(_keys.intersection(validKeys));
+  }
+
+  void _replace(Set<String> next) {
+    if (setEquals(_keys, next)) return;
+    _keys
+      ..clear()
+      ..addAll(next);
+    notifyListeners();
   }
 }
 

@@ -66,8 +66,9 @@ class _ToolsSettingsPaneState extends State<ToolsSettingsPane> {
     ];
     return AlembicSettingsPane(
       title: 'Tools',
-      subtitle: 'Editor launchers, Git clients, and signing defaults.',
+      subtitle: 'Choose your editor, Git client, and cloning preferences.',
       children: <Widget>[
+        const AlembicSettingsSectionHeader(title: 'Default applications'),
         AlembicSettingsMenuRow<ApplicationTool>(
           title: 'Editor tool',
           description: 'Default editor for opening repositories.',
@@ -84,6 +85,7 @@ class _ToolsSettingsPaneState extends State<ToolsSettingsPane> {
           itemLabel: _gitLabel,
           onSelected: _setGitTool,
         ),
+        const AlembicSettingsSectionHeader(title: 'Git'),
         AlembicSettingsMenuRow<CloneTransportMode>(
           title: 'Clone transport',
           description: 'Preferred transport when Alembic clones repositories.',
@@ -126,6 +128,7 @@ ssh -T git@github.com''';
         Text(
           'SSH signing setup',
           style: theme.typography.small.copyWith(
+            fontSize: 13,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -133,6 +136,7 @@ ssh -T git@github.com''';
         Text(
           'Generate an Ed25519 key, point Git signing at the public key, then add that public key to GitHub as a Signing key.',
           style: theme.typography.xSmall.copyWith(
+            fontSize: 12,
             color: theme.colorScheme.mutedForeground,
           ),
         ),
@@ -153,6 +157,7 @@ ssh -T git@github.com''';
           child: SelectableText(
             _commands,
             style: theme.typography.xSmall.copyWith(
+              fontSize: 12,
               fontFamily: 'monospace',
               color: theme.colorScheme.foreground,
               height: 1.45,
@@ -163,6 +168,7 @@ ssh -T git@github.com''';
         Text(
           'GitHub path: Settings > SSH and GPG keys > New SSH key > Key type: Signing Key.',
           style: theme.typography.xSmall.copyWith(
+            fontSize: 12,
             color: theme.colorScheme.mutedForeground,
           ),
         ),

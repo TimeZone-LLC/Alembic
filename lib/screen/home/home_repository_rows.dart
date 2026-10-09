@@ -5,6 +5,7 @@ import 'package:alembic/platform/desktop_platform_adapter.dart';
 import 'package:alembic/presentation/repository_action_catalog.dart';
 import 'package:alembic/presentation/repository_action_model.dart';
 import 'package:alembic/screen/home/home_actions.dart';
+import 'package:alembic/screen/home/home_repository_metadata.dart';
 import 'package:alembic/screen/home/home_view_filters.dart';
 import 'package:alembic/ui/alembic_ui.dart';
 import 'package:alembic/util/archive_master.dart';
@@ -12,7 +13,8 @@ import 'package:alembic/util/git_accounts.dart';
 import 'package:alembic/widget/repository_tile_actions.dart';
 import 'package:arcane/arcane.dart';
 import 'package:flutter/widgets.dart' as m;
-import 'package:flutter/gestures.dart' show PointerDeviceKind, PointerDownEvent;
+import 'package:flutter/gestures.dart'
+    show PointerDeviceKind, PointerDownEvent, kPrimaryButton;
 
 typedef HomeEntryCallback = Future<void> Function(HomeRepositoryEntry entry);
 typedef HomeEntryActionCallback = Future<void> Function(
@@ -111,9 +113,11 @@ class HomeRepositoryRow extends StatefulWidget {
   final int revision;
   final bool archiveEnabled;
   final GitAccount? account;
+  final HomeRepositoryMetadata metadata;
   final bool canFork;
   final HomeSelectionController? selection;
   final bool showSeparator;
+  final VoidCallback? onSelect;
   final HomeEntryCallback onPrimaryAction;
   final HomeEntryActionCallback onAction;
   final HomeEntryCallback onShowDetails;
@@ -125,11 +129,13 @@ class HomeRepositoryRow extends StatefulWidget {
     required this.revision,
     required this.archiveEnabled,
     required this.account,
+    required this.metadata,
     required this.canFork,
     required this.onPrimaryAction,
     required this.onAction,
     required this.onShowDetails,
     this.selection,
+    this.onSelect,
     this.showSeparator = true,
   });
 
@@ -138,9 +144,6 @@ class HomeRepositoryRow extends StatefulWidget {
 }
 
 class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
-  static const RepositoryAuthInspector _authInspector =
-      RepositoryAuthInspector();
-
   static const Set<RepositoryTileAction> _archiveMasterActions =
       <RepositoryTileAction>{
     RepositoryTileAction.enrollArchiveMaster,
@@ -150,8 +153,7 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
   };
 
   late Stream<List<RepositoryWork>> _workStream;
-  late Future<RepoAuthInfo> _authInfo;
-  late bool _hasMasterClone;
+  bool _hasMasterClone = false;
   bool _hovered = false;
   bool _focused = false;
   bool _touchControls = false;
@@ -171,7 +173,7 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.entry.fullName != widget.entry.fullName ||
         oldWidget.runtime != widget.runtime ||
-        oldWidget.revision != widget.revision) {
+        oldWidget.metadata != widget.metadata) {
       _configureRepository();
     }
     if (oldWidget.selection != widget.selection) {
@@ -210,17 +212,17 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
   }
 
   void _configureRepository() {
-    ArcaneRepository arcaneRepository = _arcaneRepository();
     _workStream = widget.runtime.streamWorkEntries(widget.entry.repository);
-    _authInfo = _authInspector.read(arcaneRepository);
-    _hasMasterClone = arcaneRepository.isArchiveMasterSync;
+    final HomeRepositoryMetadata metadata = widget.metadata;
+    _hasMasterClone = false;
+    metadata.hasMasterClone.then((bool exists) {
+      if (mounted &&
+          identical(widget.metadata, metadata) &&
+          exists != _hasMasterClone) {
+        setState(() => _hasMasterClone = exists);
+      }
+    }, onError: (Object error, StackTrace stackTrace) {});
   }
-
-  ArcaneRepository _arcaneRepository() => ArcaneRepository(
-        repository: widget.entry.repository,
-        runtime: widget.runtime,
-        accountId: widget.account?.id,
-      );
 
   bool get _enrolled => isArchiveMasterRepository(
         widget.entry.repository.owner?.login ?? '',
@@ -355,60 +357,56 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
                       onActionSelected: (RepositoryTileAction action) =>
                           widget.onAction(widget.entry, action),
                     );
-                    final Widget identity = GestureDetector(
+                    final Widget identity = Listener(
                       behavior: HitTestBehavior.opaque,
-                      onDoubleTap: () => widget.onShowDetails(widget.entry),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          _RowTitleLine(
-                            entry: widget.entry,
-                            account: widget.account,
-                            enrolled: _enrolled,
-                            archiveEnabled: widget.archiveEnabled,
-                            authInfo: _authInfo,
-                            onAuthPressed: _onAuthWarningPressed,
-                          ),
-                          if (description != null) ...<Widget>[
-                            const Gap(5),
-                            Text(
-                              description,
-                              maxLines: narrow ? 2 : 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.typography.xSmall.copyWith(
-                                fontSize: 12,
-                                color: theme.colorScheme.mutedForeground,
-                                height: 1.4,
-                              ),
+                      onPointerDown: (PointerDownEvent event) {
+                        if (event.buttons & kPrimaryButton != 0) {
+                          widget.onSelect?.call();
+                        }
+                      },
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onDoubleTap: () => widget.onShowDetails(widget.entry),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            _RowTitleLine(
+                              entry: widget.entry,
+                              account: widget.account,
+                              enrolled: _enrolled,
+                              archiveEnabled: widget.archiveEnabled,
+                              authInfo: widget.metadata.authInfo,
+                              onAuthPressed: _onAuthWarningPressed,
                             ),
+                            if (description != null && narrow) ...<Widget>[
+                              const Gap(4),
+                              Text(
+                                description,
+                                maxLines: narrow ? 2 : 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.typography.xSmall.copyWith(
+                                  fontSize: 12,
+                                  color: theme.colorScheme.mutedForeground,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
                     );
                     return Column(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
                         Container(
-                          constraints: const BoxConstraints(minHeight: 80),
-                          margin: const EdgeInsets.symmetric(vertical: 3),
+                          constraints: const BoxConstraints(minHeight: 68),
+                          alignment: Alignment.centerLeft,
                           padding: EdgeInsets.symmetric(
-                              horizontal: compact ? 8 : 12, vertical: 10),
+                              horizontal: compact ? 8 : 12, vertical: 7),
                           decoration: BoxDecoration(
-                            color: _selected
-                                ? m.Color.alphaBlend(
-                                    theme.colorScheme.primary
-                                        .withValues(alpha: 0.13),
-                                    theme.colorScheme.background,
-                                  )
-                                : _hovered
-                                    ? theme.colorScheme.muted
-                                        .withValues(alpha: 0.45)
-                                    : widget.entry.repoState == RepoState.active
-                                        ? AlembicShadcnTokens.success(theme)
-                                            .withValues(alpha: 0.05)
-                                        : null,
-                            borderRadius: BorderRadius.circular(8),
+                            color: _selected ? theme.colorScheme.accent : null,
+                            borderRadius: BorderRadius.circular(4),
                             border: Border.all(
                               color: _selected
                                   ? theme.colorScheme.ring
@@ -431,7 +429,16 @@ class _HomeRepositoryRowState extends State<HomeRepositoryRow> {
                                       onPressed: _toggleSelection,
                                       compact: compact,
                                     ),
-                                  Expanded(child: identity),
+                                  Expanded(
+                                    child: description != null && !narrow
+                                        ? Tooltip(
+                                            tooltip: (_) => TooltipContainer(
+                                              child: Text(description),
+                                            ),
+                                            child: identity,
+                                          )
+                                        : identity,
+                                  ),
                                   if (!compact) ...<Widget>[
                                     const Gap(20),
                                     actions,
@@ -821,6 +828,9 @@ class _RowTrailing extends StatelessWidget {
           ],
         ),
       );
+    }
+    if (!controlsVisible) {
+      return const SizedBox(width: reservedWidth, height: 28);
     }
     return SizedBox(
       width: reservedWidth,

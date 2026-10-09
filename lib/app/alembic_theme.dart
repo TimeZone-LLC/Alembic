@@ -27,6 +27,7 @@ ArcaneTheme buildAlembicTheme() {
     surfaceOpacity: 1,
     surfaceOpacityLight: 1,
     themeMode: loadAlembicThemeMode(),
+    scrollBehavior: const ArcaneScrollBehavior(allowMouseDragging: false),
     scheme: AlembicShadcnTokens.scheme,
     shadThemeBuilder: _buildComponentTheme,
   );
@@ -39,8 +40,12 @@ ThemeData _buildComponentTheme(ArcaneTheme theme, Brightness brightness) =>
       scaling: theme.scaling,
       surfaceOpacity: 1,
       surfaceBlur: 0,
-      typography: const Typography.geist(
-        sans: TextStyle(fontFamily: 'PlusJakartaSans'),
-        mono: TextStyle(fontFamily: 'JetBrainsMono'),
+      typography: Typography.geist(
+        sans: TextStyle(
+            fontFamily: Platform.isMacOS ? '.SF Pro Text' : 'PlusJakartaSans',
+            fontFamilyFallback: const <String>['PlusJakartaSans']),
+        mono: TextStyle(
+            fontFamily: Platform.isMacOS ? '.SFMono-Regular' : 'JetBrainsMono',
+            fontFamilyFallback: const <String>['JetBrainsMono']),
       ),
     );

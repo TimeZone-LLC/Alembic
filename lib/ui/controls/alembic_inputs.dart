@@ -36,6 +36,7 @@ class AlembicLabeledField extends StatelessWidget {
 
 class AlembicTextInput extends StatelessWidget {
   final TextEditingController? controller;
+  final FocusNode? focusNode;
   final String placeholder;
   final bool obscureText;
   final int? maxLength;
@@ -50,6 +51,7 @@ class AlembicTextInput extends StatelessWidget {
     super.key,
     required this.placeholder,
     this.controller,
+    this.focusNode,
     this.obscureText = false,
     this.maxLength,
     this.keyboardType,
@@ -63,6 +65,7 @@ class AlembicTextInput extends StatelessWidget {
   @override
   Widget build(BuildContext context) => TextField(
         controller: controller,
+        focusNode: focusNode,
         placeholder: Text(placeholder),
         obscureText: obscureText,
         maxLength: maxLength,

@@ -16,6 +16,7 @@ import 'package:alembic/util/repo_config.dart';
 import 'package:arcane/arcane.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/widgets.dart' as m;
+import 'package:flutter/services.dart';
 
 Future<void> showSettingsModal(
   BuildContext context, {
@@ -262,98 +263,155 @@ class _SettingsState extends State<Settings> {
       ];
 
   @override
-  Widget build(BuildContext context) {
-    return AlembicScaffold(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1080),
+  Widget build(BuildContext context) => m.CallbackShortcuts(
+        bindings: <m.ShortcutActivator, VoidCallback>{
+          const m.SingleActivator(LogicalKeyboardKey.escape): () =>
+              Navigator.of(context).maybePop(),
+        },
+        child: AlembicScaffold(
+          padding: EdgeInsets.zero,
           child: LayoutBuilder(
             builder: (BuildContext context, BoxConstraints constraints) {
-              final bool wide = constraints.maxWidth >= 840;
+              final double textScale =
+                  m.MediaQuery.textScalerOf(context).scale(1);
+              final bool wide = constraints.maxWidth >= 760 * textScale;
               final Widget body = _SettingsBody(
                 key: _settingsBodyKey,
                 sections: _sections(),
                 selectedSection: _selectedSection,
               );
-              return Column(
+              return Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  _SettingsHeader(
-                    onDone: () => Navigator.of(context).pop(),
-                  ),
-                  const Gap(28),
-                  if (!wide) ...<Widget>[
-                    AlembicSelect<int>(
-                      key: const ValueKey<String>('settings-category'),
-                      value: _selectedSection,
-                      options: <AlembicDropdownOption<int>>[
-                        for (int i = 0; i < _sectionNames.length; i++)
-                          AlembicDropdownOption<int>(
-                            value: i,
-                            label: _sectionNames[i],
-                          ),
-                      ],
-                      onChanged: (int index) => setState(() {
-                        _selectedSection = index;
-                      }),
+                  if (wide)
+                    SizedBox(
+                      width: 200,
+                      child: _SettingsSidebar(
+                        names: _sectionNames,
+                        icons: _sectionIcons,
+                        selectedSection: _selectedSection,
+                        onSelected: _selectSection,
+                      ),
                     ),
-                    const Gap(24),
-                  ],
                   Expanded(
-                    child: wide
-                        ? Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              SizedBox(
-                                width: 176,
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: <Widget>[
-                                    for (int i = 0;
-                                        i < _sectionNames.length;
-                                        i++) ...<Widget>[
-                                      Semantics(
-                                        selected: _selectedSection == i,
-                                        child: Button(
-                                          key: ValueKey<String>(
-                                              'settings-section-${_sectionNames[i]}'),
-                                          style: _selectedSection == i
-                                              ? const ButtonStyle.secondary()
-                                              : const ButtonStyle.ghost(),
-                                          onPressed: () => setState(() {
-                                            _selectedSection = i;
-                                          }),
-                                          child: SizedBox(
-                                            height: 22,
-                                            child: Row(
-                                              children: <Widget>[
-                                                Icon(_sectionIcons[i],
-                                                    size: 16),
-                                                const Gap(10),
-                                                Text(_sectionNames[i]),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      const Gap(4),
-                                    ],
-                                  ],
-                                ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        _SettingsHeader(
+                          onDone: () => Navigator.of(context).pop(),
+                        ),
+                        if (!wide)
+                          ColoredBox(
+                            color: Theme.of(context).colorScheme.muted,
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                              child: AlembicSelect<int>(
+                                key:
+                                    const ValueKey<String>('settings-category'),
+                                value: _selectedSection,
+                                options: <AlembicDropdownOption<int>>[
+                                  for (int i = 0; i < _sectionNames.length; i++)
+                                    AlembicDropdownOption<int>(
+                                      value: i,
+                                      label: _sectionNames[i],
+                                    ),
+                                ],
+                                onChanged: _selectSection,
                               ),
-                              const Gap(36),
-                              Expanded(child: body),
-                            ],
-                          )
-                        : body,
+                            ),
+                          ),
+                        Expanded(child: body),
+                      ],
+                    ),
                   ),
                 ],
               );
             },
           ),
         ),
+      );
+
+  void _selectSection(int index) => setState(() {
+        _selectedSection = index;
+      });
+}
+
+class _SettingsSidebar extends StatelessWidget {
+  final List<String> names;
+  final List<IconData> icons;
+  final int selectedSection;
+  final ValueChanged<int> onSelected;
+
+  const _SettingsSidebar({
+    required this.names,
+    required this.icons,
+    required this.selectedSection,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return ColoredBox(
+      color: theme.colorScheme.sidebar,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 22, 16, 20),
+            child: Text('Alembic',
+                style: theme.typography.small
+                    .copyWith(fontSize: 14, fontWeight: FontWeight.w600)),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+                    child: Text('Settings',
+                        style: theme.typography.xSmall.copyWith(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.mutedForeground,
+                        )),
+                  ),
+                  for (int i = 0; i < names.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 1),
+                      child: Semantics(
+                        selected: selectedSection == i,
+                        child: Button(
+                          disableHoverEffect: true,
+                          disableTransition: true,
+                          enableFeedback: false,
+                          key: ValueKey<String>('settings-section-${names[i]}'),
+                          style: selectedSection == i
+                              ? const ButtonStyle.secondary(
+                                  density: ButtonDensity.dense)
+                              : const ButtonStyle.ghost(
+                                  density: ButtonDensity.dense),
+                          onPressed: () => onSelected(i),
+                          child: Row(
+                            children: <Widget>[
+                              Icon(icons[i], size: 15),
+                              const Gap(9),
+                              Expanded(
+                                child: Text(names[i],
+                                    style: const TextStyle(fontSize: 13)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -362,33 +420,33 @@ class _SettingsState extends State<Settings> {
 class _SettingsHeader extends StatelessWidget {
   final VoidCallback onDone;
 
-  const _SettingsHeader({
-    required this.onDone,
-  });
+  const _SettingsHeader({required this.onDone});
 
   @override
   Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: <Widget>[
-        Expanded(
-          child: Text(
-            'Settings',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.typography.x2Large.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+    final ThemeData theme = Theme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.background,
+        border: Border(bottom: BorderSide(color: theme.colorScheme.border)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text('Settings',
+                style: theme.typography.small
+                    .copyWith(fontSize: 14, fontWeight: FontWeight.w600)),
           ),
-        ),
-        const Gap(AlembicShadcnTokens.gapMd),
-        AlembicToolbarButton(
-          onPressed: onDone,
-          label: 'Done',
-          quiet: true,
-        ),
-      ],
+          const Gap(12),
+          AlembicToolbarButton(
+            key: const ValueKey<String>('settings-done'),
+            onPressed: onDone,
+            label: 'Done',
+            compact: true,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -404,21 +462,36 @@ class _SettingsBody extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => IndexedStack(
-        index: selectedSection,
-        children: <Widget>[
-          for (int i = 0; i < sections.length; i++)
-            ExcludeFocus(
-              excluding: i != selectedSection,
-              child: TickerMode(
-                enabled: i == selectedSection,
-                child: m.ListView(
-                  key: PageStorageKey<int>(i),
-                  padding: const EdgeInsets.only(bottom: 32),
-                  children: <Widget>[sections[i]],
+  Widget build(BuildContext context) => ColoredBox(
+        color: Theme.of(context).colorScheme.muted,
+        child: IndexedStack(
+          index: selectedSection,
+          children: <Widget>[
+            for (int i = 0; i < sections.length; i++)
+              ExcludeFocus(
+                excluding: i != selectedSection,
+                child: TickerMode(
+                  enabled: i == selectedSection,
+                  child: m.ListView(
+                    key: PageStorageKey<int>(i),
+                    padding: EdgeInsets.symmetric(
+                      horizontal:
+                          m.MediaQuery.sizeOf(context).width < 600 ? 16 : 28,
+                      vertical: 24,
+                    ),
+                    children: <Widget>[
+                      Align(
+                        alignment: Alignment.topCenter,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 680),
+                          child: sections[i],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       );
 }

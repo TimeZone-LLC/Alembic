@@ -134,6 +134,10 @@ class WindowUtil {
       : _defaultTrayIconAsset;
 
   static Future<void> initSystemTray() async {
+    if (DesktopPlatformAdapter.instance.isMacOS) {
+      _macOSTraySubscription ??=
+          MacOSTrayService.instance.events.listen(_handleMacOSTrayEvent);
+    }
     if (windowMode) {
       if (DesktopPlatformAdapter.instance.isMacOS) {
         verbose("    Window mode active: switching macOS to regular policy");
@@ -143,8 +147,6 @@ class WindowUtil {
     }
     if (DesktopPlatformAdapter.instance.isMacOS) {
       verbose("    Wiring native macOS tray service");
-      _macOSTraySubscription ??=
-          MacOSTrayService.instance.events.listen(_handleMacOSTrayEvent);
       await MacOSTrayService.instance.init();
       await MacOSTrayService.instance.setTooltip('Alembic');
       verbose("    Native macOS tray ready");
@@ -321,11 +323,12 @@ class WindowUtil {
         size: _windowSize,
         minimumSize: const Size(minWidth, minHeight),
         center: false,
-        windowButtonVisibility: false,
+        windowButtonVisibility: Platform.isMacOS,
         title: 'Alembic',
         alwaysOnTop: false,
         skipTaskbar: DesktopPlatformAdapter.instance.isTrayFirstPlatform,
-        titleBarStyle: TitleBarStyle.hidden,
+        titleBarStyle:
+            Platform.isMacOS ? TitleBarStyle.normal : TitleBarStyle.hidden,
       );
 
   static WindowOptions get _windowModeOptions => WindowOptions(

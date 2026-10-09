@@ -181,6 +181,7 @@ class _DiagnosticsPathList extends StatelessWidget {
         Text(
           title,
           style: theme.typography.small.copyWith(
+            fontSize: 13,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -188,6 +189,7 @@ class _DiagnosticsPathList extends StatelessWidget {
         Text(
           description,
           style: theme.typography.xSmall.copyWith(
+            fontSize: 12,
             color: theme.colorScheme.mutedForeground,
           ),
         ),
@@ -208,6 +210,7 @@ class _DiagnosticsPathList extends StatelessWidget {
           child: SelectableText(
             paths.join('\n'),
             style: theme.typography.xSmall.copyWith(
+              fontSize: 12,
               fontFamily: 'monospace',
               color: theme.colorScheme.foreground,
               height: 1.45,

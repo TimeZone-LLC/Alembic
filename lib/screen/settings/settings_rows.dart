@@ -18,48 +18,11 @@ class SettingsPathRow extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: <Widget>[
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                title,
-                style: theme.typography.small.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const Gap(AlembicShadcnTokens.gapXs),
-              Text(
-                description,
-                style: theme.typography.xSmall.copyWith(
-                  color: theme.colorScheme.mutedForeground,
-                ),
-              ),
-              const Gap(AlembicShadcnTokens.gapSm),
-              Text(
-                path,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.typography.xSmall.copyWith(
-                  fontFamily: 'monospace',
-                  color: theme.colorScheme.foreground,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Gap(AlembicShadcnTokens.gapLg),
-        AlembicToolbarButton(
-          label: actionLabel,
-          onPressed: onPressed,
-          compact: true,
-        ),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => AlembicSettingsActionRow(
+        title: title,
+        description: description,
+        value: path,
+        actionLabel: actionLabel,
+        onPressed: onPressed,
+      );
 }

@@ -21,6 +21,7 @@ import 'package:alembic/screen/home/home_repository_operations.dart';
 import 'package:alembic/screen/home/home_repository_rows.dart';
 import 'package:alembic/screen/home/home_session.dart';
 import 'package:alembic/screen/home/home_status_states.dart';
+import 'package:alembic/screen/home/home_sidebar.dart';
 import 'package:alembic/screen/home/home_top_bar.dart';
 import 'package:alembic/screen/home/home_update_checker.dart';
 import 'package:alembic/screen/home/home_view_filters.dart';
@@ -69,6 +70,9 @@ class _AlembicHomeState extends State<AlembicHome> {
   late final HomeBulkActionsCoordinator _bulkActions;
   late final HomeUpdatesHook _updatesHook;
   late final m.TextEditingController _searchController;
+  final m.FocusNode _searchFocusNode =
+      m.FocusNode(debugLabel: 'Repository search');
+  bool _sidebarVisible = true;
 
   StreamSubscription<RepositoryListState>? _listSubscription;
   StreamSubscription<WorkspaceScanSnapshot>? _scanSubscription;
@@ -87,6 +91,8 @@ class _AlembicHomeState extends State<AlembicHome> {
   void initState() {
     super.initState();
     _searchController = m.TextEditingController();
+    _sidebarVisible =
+        boxSettings.get('home_sidebar_visible', defaultValue: true) != false;
     _listState = widget.store.value;
     _snapshot = widget.scanService.value;
     _controller = HomeController(
@@ -144,6 +150,7 @@ class _AlembicHomeState extends State<AlembicHome> {
   @override
   void dispose() {
     _searchController.dispose();
+    _searchFocusNode.dispose();
     _listSubscription?.cancel();
     _scanSubscription?.cancel();
     _archiveMasterRunningSubscription?.cancel();
@@ -209,6 +216,33 @@ class _AlembicHomeState extends State<AlembicHome> {
     if (action == AlembicTrayMenuAction.settings) {
       _openSettings();
     }
+    if (action == AlembicTrayMenuAction.clone) {
+      _openCloneLink();
+    }
+    if (action == AlembicTrayMenuAction.search) {
+      _focusSearch();
+    }
+    if (action == AlembicTrayMenuAction.toggleSidebar) {
+      _toggleSidebar();
+    }
+  }
+
+  void _focusSearch() {
+    final ModalRoute<Object?>? homeRoute = ModalRoute.of(context);
+    if (homeRoute != null && !homeRoute.isCurrent) {
+      Navigator.of(context)
+          .popUntil((Route<Object?> route) => route == homeRoute);
+    }
+    _searchFocusNode.requestFocus();
+    _searchController.selection = m.TextSelection(
+      baseOffset: 0,
+      extentOffset: _searchController.text.length,
+    );
+  }
+
+  void _toggleSidebar() {
+    setState(() => _sidebarVisible = !_sidebarVisible);
+    unawaited(boxSettings.put('home_sidebar_visible', _sidebarVisible));
   }
 
   HomeStateFilter _restoreLastStateFilter() {
@@ -447,62 +481,79 @@ class _AlembicHomeState extends State<AlembicHome> {
     Widget scaffold = Stack(
       children: <Widget>[
         AlembicScaffold(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            10 +
-                (Platform.isWindows ? AlembicShadcnTokens.macTitlebarInset : 0),
-            20,
-            10,
-          ),
-          child: ColoredBox(
-            color: Theme.of(context).colorScheme.background,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                HomeTopBar(
-                  filters: _filters,
-                  stats: stats,
-                  owners: owners,
-                  archiveEnabled: archiveEnabled,
-                  refreshing: loading,
-                  updateAvailable: _updateAvailable,
-                  progress: _controller.progress,
-                  progressLabel: _controller.progressLabel,
-                  searchController: _searchController,
-                  onSearchChanged: _onSearchChanged,
-                  onStateFilterSelected: _selectStateFilter,
-                  onSortSelected: _selectSortMode,
-                  onOwnerSelected: _selectOwner,
-                  onRefresh: () => unawaited(_refreshRepositories()),
-                  onCloneLink: _openCloneLink,
-                  onImport: _openImportScreen,
-                  onBulkActions: () =>
-                      unawaited(_bulkActions.showActionsDialog(context)),
-                  onOpenSettings: _openSettings,
+          padding: EdgeInsets.zero,
+          child: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+            final bool canShowSidebar = constraints.maxWidth >= 820;
+            final bool hasSidebar = canShowSidebar && _sidebarVisible;
+            return Row(children: <Widget>[
+              if (hasSidebar)
+                SizedBox(
+                  width: AlembicShadcnTokens.sidebarWidth,
+                  child: HomeSidebar(
+                    filters: _filters,
+                    stats: stats,
+                    owners: owners,
+                    archiveEnabled: archiveEnabled,
+                    onStateSelected: _selectStateFilter,
+                    onOwnerSelected: _selectOwner,
+                  ),
                 ),
-                const Gap(10),
-                if (showList && _listState.phase == 'rate_limited') ...<Widget>[
-                  HomeRateLimitNotice(
-                    listState: _listState,
-                    onRetry: () => unawaited(widget.store.retry()),
-                  ),
-                  const Gap(AlembicShadcnTokens.gapSm),
+              Expanded(
+                  child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                      child: HomeTopBar(
+                        searchFocusNode: _searchFocusNode,
+                        onToggleSidebar: canShowSidebar ? _toggleSidebar : null,
+                        showFilters: !hasSidebar,
+                        filters: _filters,
+                        stats: stats,
+                        owners: owners,
+                        archiveEnabled: archiveEnabled,
+                        refreshing: loading,
+                        updateAvailable: _updateAvailable,
+                        progress: _controller.progress,
+                        progressLabel: _controller.progressLabel,
+                        searchController: _searchController,
+                        onSearchChanged: _onSearchChanged,
+                        onStateFilterSelected: _selectStateFilter,
+                        onSortSelected: _selectSortMode,
+                        onOwnerSelected: _selectOwner,
+                        onRefresh: () => unawaited(_refreshRepositories()),
+                        onCloneLink: _openCloneLink,
+                        onImport: _openImportScreen,
+                        onBulkActions: () =>
+                            unawaited(_bulkActions.showActionsDialog(context)),
+                        onOpenSettings: _openSettings,
+                      )),
+                  Divider(color: Theme.of(context).colorScheme.border),
+                  if (showList &&
+                      _listState.phase == 'rate_limited') ...<Widget>[
+                    HomeRateLimitNotice(
+                      listState: _listState,
+                      onRetry: () => unawaited(widget.store.retry()),
+                    ),
+                    const Gap(AlembicShadcnTokens.gapSm),
+                  ],
+                  if (showList &&
+                      _listState.status ==
+                          RepositoryListStatus.error) ...<Widget>[
+                    HomeRefreshErrorNotice(
+                      listState: _listState,
+                      onRetry: () => unawaited(widget.store.retry()),
+                    ),
+                    const Gap(AlembicShadcnTokens.gapSm),
+                  ],
+                  Expanded(child: content),
                 ],
-                if (showList &&
-                    _listState.status ==
-                        RepositoryListStatus.error) ...<Widget>[
-                  HomeRefreshErrorNotice(
-                    listState: _listState,
-                    onRetry: () => unawaited(widget.store.retry()),
-                  ),
-                  const Gap(AlembicShadcnTokens.gapSm),
-                ],
-                Expanded(child: content),
-              ],
-            ),
-          ),
+              )),
+            ]);
+          }),
         ),
-        if (Platform.isMacOS || Platform.isWindows)
+        if (Platform.isWindows)
           const Positioned(
             top: 0,
             left: 0,
@@ -523,6 +574,18 @@ class _AlembicHomeState extends State<AlembicHome> {
           services.LogicalKeyboardKey.comma,
           control: true,
         ): _openSettings,
+        const m.SingleActivator(services.LogicalKeyboardKey.keyR, meta: true):
+            () => unawaited(_refreshRepositories()),
+        const m.SingleActivator(services.LogicalKeyboardKey.keyN, meta: true):
+            _openCloneLink,
+        const m.SingleActivator(services.LogicalKeyboardKey.keyF, meta: true):
+            _focusSearch,
+        const m.SingleActivator(services.LogicalKeyboardKey.keyF,
+            control: true): _focusSearch,
+        const m.SingleActivator(services.LogicalKeyboardKey.keyS,
+            meta: true, alt: true): _toggleSidebar,
+        const m.SingleActivator(services.LogicalKeyboardKey.keyI,
+            meta: true, shift: true): _openImportScreen,
       },
       child: m.Focus(autofocus: true, child: scaffold),
     );

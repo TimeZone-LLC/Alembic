@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:alembic/bloc/repository_list_store.dart';
 import 'package:alembic/core/diagnostics.dart';
 import 'package:alembic/core/repository_runtime.dart';
+import 'package:alembic/domain/repository_dto.dart';
 import 'package:alembic/domain/repository_list_status.dart';
 import 'package:alembic/platform/desktop_platform_adapter.dart';
 import 'package:alembic/util/archive_master.dart';
@@ -70,13 +71,18 @@ class WorkspaceScanService {
   final BehaviorSubject<WorkspaceScanSnapshot> _subject;
   Set<String> _activeRepositories = <String>{};
   Set<String> _archivedRepositories = <String>{};
+  Map<String, int> _repositoryModifiedMs = <String, int>{};
+  Map<String, RepositoryLocalState> _localStates =
+      const <String, RepositoryLocalState>{};
 
   StreamSubscription<List<Repository>>? _syncingSub;
   StreamSubscription<int>? _changedSub;
+  StreamSubscription<Set<String>>? _repositoriesSub;
   Timer? _debounceTimer;
   Timer? _rescanTimer;
   Completer<void>? _scanCompleter;
   bool _started = false;
+  bool _disposed = false;
   bool _scanRequested = false;
   bool _forceEmitRequested = false;
 
@@ -96,6 +102,9 @@ class WorkspaceScanService {
   WorkspaceScanSnapshot get value => _subject.value;
 
   Future<void> start() async {
+    if (_disposed) {
+      return;
+    }
     if (_started) {
       _diagnostics.warn(_logTag, 'start() called twice; ignoring');
       return;
@@ -107,7 +116,22 @@ class WorkspaceScanService {
     _changedSub = _runtime.changed.stream.skip(1).listen((_) {
       unawaited(_requestScan(forceEmit: true));
     });
+    _repositoriesSub = _store.stream
+        .distinct((RepositoryListState previous, RepositoryListState next) =>
+            identical(previous.repositories, next.repositories))
+        .map((RepositoryListState state) => state.repositories
+            .map(
+                (RepositoryDto repository) => repository.fullName.toLowerCase())
+            .toSet())
+        .distinct(_sameStringSet)
+        .skip(1)
+        .listen((_) {
+      unawaited(_requestScan(forceEmit: true));
+    });
     await _requestScan(forceEmit: true);
+    if (_disposed) {
+      return;
+    }
     _rescanTimer = Timer.periodic(_rescanInterval, (_) {
       unawaited(_requestScan());
     });
@@ -117,6 +141,10 @@ class WorkspaceScanService {
   Future<void> rescan() => _requestScan(forceEmit: true);
 
   Future<void> dispose() async {
+    if (_disposed) {
+      return;
+    }
+    _disposed = true;
     _started = false;
     _debounceTimer?.cancel();
     _debounceTimer = null;
@@ -124,6 +152,7 @@ class WorkspaceScanService {
     _rescanTimer = null;
     await _syncingSub?.cancel();
     await _changedSub?.cancel();
+    await _repositoriesSub?.cancel();
     _scanRequested = false;
     _forceEmitRequested = false;
     Completer<void>? scanCompleter = _scanCompleter;
@@ -136,9 +165,15 @@ class WorkspaceScanService {
   }
 
   Future<void> _requestScan({bool forceEmit = false}) {
+    if (_disposed) {
+      return Future<void>.value();
+    }
+    Completer<void>? activeCompleter = _scanCompleter;
+    if (activeCompleter != null && !forceEmit) {
+      return activeCompleter.future;
+    }
     _scanRequested = true;
     _forceEmitRequested = _forceEmitRequested || forceEmit;
-    Completer<void>? activeCompleter = _scanCompleter;
     if (activeCompleter != null) {
       return activeCompleter.future;
     }
@@ -151,11 +186,15 @@ class WorkspaceScanService {
 
   Future<void> _drainScanQueue(Completer<void> completer) async {
     try {
-      while (_scanRequested) {
+      while (_scanRequested && !_disposed) {
         bool forceEmit = _forceEmitRequested;
         _scanRequested = false;
         _forceEmitRequested = false;
         bool changed = await _rescanFromDisk();
+        if (_scanRequested) {
+          _forceEmitRequested = _forceEmitRequested || forceEmit;
+          continue;
+        }
         if (changed || forceEmit) {
           _emitSnapshot();
         }
@@ -208,15 +247,57 @@ class WorkspaceScanService {
         nextActive.add(ref.fullName.toLowerCase());
       }
     }
-    _refreshDerivedSets(
+    List<Repository> runtimeActive = _runtime.activeRepositories;
+    List<Repository> verifiedActive = await _refreshDerivedSets(
       repositories: nextActive,
       workspaceDir: workspaceDir,
+      runtimeActive: runtimeActive,
     );
+
+    Map<String, int> nextModifiedMs = <String, int>{};
+    for (Repository repository in _store.cachedRepositories) {
+      if (!nextActive.contains(_repositoryKey(repository))) {
+        continue;
+      }
+      String path = _repositoryPathForWorkspace(
+        repository: repository,
+        workspaceDir: workspaceDir,
+      );
+      if (nextModifiedMs.containsKey(path)) {
+        continue;
+      }
+      try {
+        FileStat stat = await Directory(path).stat();
+        nextModifiedMs[path] = stat.type == FileSystemEntityType.notFound
+            ? 0
+            : stat.modified.millisecondsSinceEpoch;
+      } catch (_) {
+        nextModifiedMs[path] = 0;
+      }
+    }
+    if (_disposed || _scanRequested) {
+      return false;
+    }
+    if (!_sameStringSet(
+      runtimeActive.map(_repositoryKey).toSet(),
+      _runtime.activeRepositories.map(_repositoryKey).toSet(),
+    )) {
+      _scanRequested = true;
+      return false;
+    }
 
     bool changed = !_sameStringSet(previousActive, nextActive) ||
         !_sameStringSet(previousArchived, nextArchived);
     _activeRepositories = Set<String>.unmodifiable(nextActive);
     _archivedRepositories = Set<String>.unmodifiable(nextArchived);
+    _repositoryModifiedMs = Map<String, int>.unmodifiable(nextModifiedMs);
+    if (verifiedActive.length != runtimeActive.length) {
+      _runtime.setActiveRepositories(verifiedActive);
+    }
+    Map<String, RepositoryLocalState> nextLocalStates = _buildLocalStates();
+    changed = changed || !_sameLocalStates(_localStates, nextLocalStates);
+    _localStates =
+        Map<String, RepositoryLocalState>.unmodifiable(nextLocalStates);
     if (changed) {
       _diagnostics.trace(
         _logTag,
@@ -330,11 +411,6 @@ class WorkspaceScanService {
   WorkspaceScanSnapshot _buildSnapshot() {
     Map<String, ArchiveMasterRepoState> masterStates =
         loadArchiveMasterRepoStates();
-    Map<String, RepositoryLocalState> localStates =
-        <String, RepositoryLocalState>{};
-    for (Repository repository in _store.cachedRepositories) {
-      localStates[repository.fullName.toLowerCase()] = _localState(repository);
-    }
 
     return WorkspaceScanSnapshot(
       activeRepositories:
@@ -347,27 +423,35 @@ class WorkspaceScanService {
       ),
       archiveMasterStates:
           Map<String, ArchiveMasterRepoState>.unmodifiable(masterStates),
-      localStates: Map<String, RepositoryLocalState>.unmodifiable(localStates),
+      localStates: _localStates,
     );
   }
 
-  void _refreshDerivedSets({
+  Map<String, RepositoryLocalState> _buildLocalStates() =>
+      <String, RepositoryLocalState>{
+        for (Repository repository in _store.cachedRepositories)
+          _repositoryKey(repository): _localState(repository),
+      };
+
+  Future<List<Repository>> _refreshDerivedSets({
     required Set<String> repositories,
     required String workspaceDir,
-  }) {
+    required List<Repository> runtimeActive,
+  }) async {
     List<Repository> verifiedActive = <Repository>[];
-    for (Repository active in _runtime.activeRepositories) {
-      if (_repositoryIsActiveSync(
+    for (Repository active in runtimeActive) {
+      String path = _repositoryPathForWorkspace(
         repository: active,
         workspaceDir: workspaceDir,
-      )) {
+      );
+      if (await Directory(
+        DesktopPlatformAdapter.instance.joinPath(path, '.git'),
+      ).exists()) {
         repositories.add(_repositoryKey(active));
         verifiedActive.add(active);
       }
     }
-    if (verifiedActive.length != _runtime.activeRepositories.length) {
-      _runtime.setActiveRepositories(verifiedActive);
-    }
+    return verifiedActive;
   }
 
   RepositoryLocalState _localState(Repository repository) {
@@ -399,13 +483,10 @@ class WorkspaceScanService {
       return 0;
     }
     int latestActivity = lastOpenMs ?? 0;
-    try {
-      FileStat repoStat = Directory(_repositoryPath(repository)).statSync();
-      int modifiedMs = repoStat.modified.millisecondsSinceEpoch;
-      if (modifiedMs > latestActivity) {
-        latestActivity = modifiedMs;
-      }
-    } catch (_) {}
+    int modifiedMs = _repositoryModifiedMs[_repositoryPath(repository)] ?? 0;
+    if (modifiedMs > latestActivity) {
+      latestActivity = modifiedMs;
+    }
     if (latestActivity == 0) {
       return thresholdDays;
     }
@@ -416,20 +497,6 @@ class WorkspaceScanService {
     int remainingDays = thresholdDays - elapsedDays;
     return remainingDays < 0 ? 0 : remainingDays;
   }
-
-  bool _repositoryIsActiveSync({
-    required Repository repository,
-    required String workspaceDir,
-  }) =>
-      Directory(
-        DesktopPlatformAdapter.instance.joinPath(
-          _repositoryPathForWorkspace(
-            repository: repository,
-            workspaceDir: workspaceDir,
-          ),
-          '.git',
-        ),
-      ).existsSync();
 
   String _repositoryPath(Repository repository) {
     return _repositoryPathForWorkspace(
@@ -450,6 +517,26 @@ class WorkspaceScanService {
 
   String _repositoryKey(Repository repository) =>
       repository.fullName.toLowerCase();
+
+  bool _sameLocalStates(
+    Map<String, RepositoryLocalState> previous,
+    Map<String, RepositoryLocalState> next,
+  ) {
+    if (previous.length != next.length) {
+      return false;
+    }
+    for (MapEntry<String, RepositoryLocalState> entry in next.entries) {
+      RepositoryLocalState? old = previous[entry.key];
+      if (old == null ||
+          old.fullName != entry.value.fullName ||
+          old.state != entry.value.state ||
+          old.daysUntilArchive != entry.value.daysUntilArchive ||
+          old.lastOpenMs != entry.value.lastOpenMs) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   bool _sameStringSet(Set<String> a, Set<String> b) {
     if (a.length != b.length) {

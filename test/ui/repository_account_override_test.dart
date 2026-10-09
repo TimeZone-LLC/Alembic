@@ -86,6 +86,9 @@ void main() {
       home: RepositoryDetailDialog(fullName: 'owner/project'),
     ));
     await tester.pumpAndSettle();
+    await tester.tap(
+        find.byKey(const ValueKey<String>('inspector-section-Configuration')));
+    await tester.pump();
     final Finder accountMenu = find.text('Use global default').last;
     await tester.ensureVisible(accountMenu);
     await tester.tap(accountMenu);

@@ -1,6 +1,7 @@
 import 'package:alembic/ui/alembic_controls.dart';
 import 'package:alembic/ui/alembic_tokens.dart';
 import 'package:arcane/arcane.dart';
+import 'package:flutter/widgets.dart' as m;
 
 class AlembicSettingsPane extends StatelessWidget {
   final String title;
@@ -29,6 +30,7 @@ class AlembicSettingsPane extends StatelessWidget {
           color: theme.colorScheme.card,
           borderRadius:
               BorderRadius.circular(AlembicShadcnTokens.surfaceRadius),
+          border: Border.all(color: theme.colorScheme.border),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 18),
         child: Column(
@@ -42,7 +44,7 @@ class AlembicSettingsPane extends StatelessWidget {
                   color: theme.colorScheme.border,
                 ),
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
+                padding: const EdgeInsets.symmetric(vertical: 14),
                 child: rows[i],
               ),
             ],
@@ -56,7 +58,8 @@ class AlembicSettingsPane extends StatelessWidget {
       if (child is AlembicSettingsSectionHeader) {
         finishGroup();
         groups.add(Padding(
-          padding: const EdgeInsets.only(top: 28, bottom: 10, left: 2),
+          padding:
+              EdgeInsets.only(top: groups.isEmpty ? 0 : 24, bottom: 9, left: 2),
           child: child,
         ));
       } else {
@@ -70,11 +73,13 @@ class AlembicSettingsPane extends StatelessWidget {
       children: <Widget>[
         Text(title,
             style: theme.typography.large.copyWith(
+              fontSize: 20,
               fontWeight: FontWeight.w600,
             )),
         const Gap(6),
         Text(subtitle,
             style: theme.typography.small.copyWith(
+              fontSize: 13,
               color: theme.colorScheme.mutedForeground,
               height: 1.5,
             )),
@@ -102,9 +107,8 @@ class AlembicSettingsSectionHeader extends StatelessWidget {
     ThemeData theme = Theme.of(context);
     return Text(
       title,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
       style: theme.typography.small.copyWith(
+        fontSize: 12,
         fontWeight: FontWeight.w600,
         color: theme.colorScheme.mutedForeground,
       ),
@@ -130,11 +134,19 @@ class AlembicSettingsToggleRow extends StatelessWidget {
   Widget build(BuildContext context) => _AlembicSettingsBaseRow(
         title: title,
         description: description,
-        trailing: Switch(
-          key: ValueKey<String>(title),
-          value: value,
-          onChanged: onChanged,
-          activeThumbColor: Theme.of(context).colorScheme.primaryForeground,
+        trailing: Semantics(
+          label: title,
+          child: Switch(
+            key: ValueKey<String>(title),
+            value: value,
+            onChanged: onChanged,
+            inactiveColor:
+                Theme.of(context).colorScheme.brightness == Brightness.light
+                    ? Theme.of(context).colorScheme.input
+                    : Theme.of(context).colorScheme.secondary,
+            activeThumbColor: Theme.of(context).colorScheme.primaryForeground,
+            inactiveThumbColor: Theme.of(context).colorScheme.primaryForeground,
+          ),
         ),
       );
 }
@@ -188,6 +200,7 @@ class AlembicSettingsInfoRow extends StatelessWidget {
           value,
           textAlign: TextAlign.end,
           style: Theme.of(context).typography.small.copyWith(
+                fontSize: 13,
                 fontWeight: FontWeight.w600,
               ),
         ),
@@ -227,14 +240,10 @@ class AlembicSettingsMenuRow<T> extends StatelessWidget {
       options: options,
       onChanged: onSelected,
     );
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) =>
-          _AlembicSettingsBaseRow(
-        title: title,
-        description: description,
-        below: constraints.maxWidth < 520 ? control : null,
-        trailing: constraints.maxWidth < 520 ? null : control,
-      ),
+    return _AlembicSettingsBaseRow(
+      title: title,
+      description: description,
+      trailing: control,
     );
   }
 }
@@ -276,55 +285,60 @@ class _AlembicSettingsBaseRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment:
-          below == null ? CrossAxisAlignment.center : CrossAxisAlignment.start,
-      children: <Widget>[
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                title,
+    final ThemeData theme = Theme.of(context);
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double textScale = m.MediaQuery.textScalerOf(context).scale(1);
+        final bool stackControl = constraints.maxWidth < 480 * textScale;
+        final Widget text = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(title,
                 style: theme.typography.small.copyWith(
+                  fontSize: 13,
                   fontWeight: FontWeight.w600,
-                ),
-              ),
-              const Gap(AlembicShadcnTokens.gapXs),
-              Text(
-                description,
+                )),
+            const Gap(4),
+            Text(description,
                 style: theme.typography.xSmall.copyWith(
+                  fontSize: 12,
                   color: theme.colorScheme.mutedForeground,
-                ),
-              ),
-              if (value != null && value!.isNotEmpty) ...<Widget>[
-                const Gap(AlembicShadcnTokens.gapSm),
-                Text(
-                  value!,
+                  height: 1.4,
+                )),
+            if (value != null && value!.isNotEmpty) ...<Widget>[
+              const Gap(8),
+              SelectableText(value!,
                   style: theme.typography.xSmall.copyWith(
+                    fontSize: 12,
                     color: theme.colorScheme.mutedForeground,
-                  ),
-                ),
-              ],
-              if (below != null) ...<Widget>[
-                const Gap(AlembicShadcnTokens.gapSm),
-                below!,
-              ],
+                  )),
             ],
-          ),
-        ),
-        if (trailing != null) ...<Widget>[
-          const Gap(AlembicShadcnTokens.gapLg),
-          Flexible(
-            flex: 0,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 210),
-              child: trailing!,
+            if (below != null) ...<Widget>[
+              const Gap(10),
+              below!,
+            ],
+            if (stackControl && trailing != null) ...<Widget>[
+              const Gap(10),
+              trailing!,
+            ],
+          ],
+        );
+        if (stackControl || trailing == null) return text;
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Expanded(child: text),
+            const Gap(24),
+            Flexible(
+              flex: 0,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 230),
+                child: trailing!,
+              ),
             ),
-          ),
-        ],
-      ],
+          ],
+        );
+      },
     );
   }
 }

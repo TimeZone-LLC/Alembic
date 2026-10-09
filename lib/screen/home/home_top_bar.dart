@@ -21,6 +21,9 @@ class HomeTopBar extends StatelessWidget {
   final VoidCallback onImport;
   final VoidCallback onBulkActions;
   final VoidCallback onOpenSettings;
+  final bool showFilters;
+  final FocusNode? searchFocusNode;
+  final VoidCallback? onToggleSidebar;
 
   const HomeTopBar({
     super.key,
@@ -42,13 +45,18 @@ class HomeTopBar extends StatelessWidget {
     required this.onImport,
     required this.onBulkActions,
     required this.onOpenSettings,
+    this.showFilters = true,
+    this.searchFocusNode,
+    this.onToggleSidebar,
   });
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
-          final bool narrow = constraints.maxWidth < 760;
-          final bool inlineSearch = constraints.maxWidth >= 980;
+          final bool narrow = constraints.maxWidth < 700;
+          final bool inlineSearch =
+              constraints.maxWidth >= (showFilters ? 980 : 660) &&
+                  MediaQuery.textScalerOf(context).scale(13) <= 13;
           final ThemeData theme = Theme.of(context);
           final Widget actions = Row(
             mainAxisSize: MainAxisSize.min,
@@ -59,7 +67,7 @@ class HomeTopBar extends StatelessWidget {
                 onPressed: onImport,
                 quiet: true,
                 compact: true,
-                iconOnly: narrow,
+                iconOnly: narrow || !showFilters,
                 tooltip: 'Import repositories from disk',
               ),
               const Gap(4),
@@ -69,7 +77,7 @@ class HomeTopBar extends StatelessWidget {
                 onPressed: onBulkActions,
                 quiet: true,
                 compact: true,
-                iconOnly: narrow,
+                iconOnly: narrow || !showFilters,
                 tooltip: 'Bulk repository actions',
               ),
               const Gap(12),
@@ -77,8 +85,9 @@ class HomeTopBar extends StatelessWidget {
                 label: 'Clone',
                 leadingIcon: LucideIcons.plus,
                 onPressed: onCloneLink,
-                prominent: true,
+                quiet: true,
                 compact: true,
+                iconOnly: !showFilters,
                 tooltip: 'Clone a repository from a link',
               ),
             ],
@@ -90,6 +99,7 @@ class HomeTopBar extends StatelessWidget {
                     AlembicTextInput(
               key: const ValueKey<String>('home-search-field'),
               controller: searchController,
+              focusNode: searchFocusNode,
               placeholder: 'Search repositories',
               onChanged: onSearchChanged,
               onSubmitted: onSearchChanged,
@@ -114,22 +124,38 @@ class HomeTopBar extends StatelessWidget {
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
-              AlembicSelect<HomeSortMode>(
-                value: archiveEnabled ||
-                        filters.sortMode != HomeSortMode.archiveSoon
-                    ? filters.sortMode
-                    : HomeSortMode.attention,
-                options: <AlembicDropdownOption<HomeSortMode>>[
-                  for (final HomeSortMode mode in HomeSortMode.values)
-                    if (archiveEnabled || mode != HomeSortMode.archiveSoon)
-                      AlembicDropdownOption<HomeSortMode>(
-                          value: mode, label: mode.label),
-                ],
-                onChanged: onSortSelected,
-                leadingIcon: LucideIcons.arrowDownWideNarrow,
-                compact: true,
-              ),
-              if (owners.length > 1)
+              if (!showFilters)
+                AlembicDropdownMenu<HomeSortMode>(
+                  label: 'Sort repositories',
+                  selectedValue: filters.sortMode,
+                  items: <AlembicDropdownOption<HomeSortMode>>[
+                    for (final HomeSortMode mode in HomeSortMode.values)
+                      if (archiveEnabled || mode != HomeSortMode.archiveSoon)
+                        AlembicDropdownOption<HomeSortMode>(
+                            value: mode, label: mode.label),
+                  ],
+                  onSelected: onSortSelected,
+                  leadingIcon: LucideIcons.arrowDownWideNarrow,
+                  compact: true,
+                  iconOnly: true,
+                )
+              else
+                AlembicSelect<HomeSortMode>(
+                  value: archiveEnabled ||
+                          filters.sortMode != HomeSortMode.archiveSoon
+                      ? filters.sortMode
+                      : HomeSortMode.attention,
+                  options: <AlembicDropdownOption<HomeSortMode>>[
+                    for (final HomeSortMode mode in HomeSortMode.values)
+                      if (archiveEnabled || mode != HomeSortMode.archiveSoon)
+                        AlembicDropdownOption<HomeSortMode>(
+                            value: mode, label: mode.label),
+                  ],
+                  onChanged: onSortSelected,
+                  leadingIcon: LucideIcons.arrowDownWideNarrow,
+                  compact: true,
+                ),
+              if (showFilters && owners.length > 1)
                 ConstrainedBox(
                   constraints: BoxConstraints(
                       maxWidth: constraints.maxWidth.clamp(0, 210)),
@@ -154,20 +180,47 @@ class HomeTopBar extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               Row(children: <Widget>[
+                if (onToggleSidebar != null) ...<Widget>[
+                  AlembicToolbarButton(
+                    label: 'Toggle sidebar',
+                    leadingIcon: LucideIcons.panelLeft,
+                    compact: true,
+                    quiet: true,
+                    iconOnly: true,
+                    tooltip: 'Show or hide the sidebar',
+                    onPressed: onToggleSidebar,
+                  ),
+                  const Gap(8),
+                ],
                 Flexible(
-                  flex: inlineSearch ? 0 : 1,
-                  child: Text('Repositories',
+                  flex: inlineSearch && showFilters ? 0 : 1,
+                  fit: showFilters ? FlexFit.loose : FlexFit.tight,
+                  child: Text(
+                      switch (filters.stateFilter) {
+                        HomeStateFilter.all => 'Repositories',
+                        HomeStateFilter.active => 'Local',
+                        HomeStateFilter.archived => 'Archived',
+                        HomeStateFilter.cloud => 'Remote',
+                        HomeStateFilter.syncing => 'Syncing',
+                      },
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.typography.large.copyWith(
-                        fontSize: 20,
+                        fontSize: 15,
                         fontWeight: FontWeight.w600,
-                        letterSpacing: -0.5,
+                        letterSpacing: -0.2,
                       )),
                 ),
                 if (inlineSearch) ...<Widget>[
                   const Gap(16),
-                  Expanded(child: search),
+                  if (showFilters)
+                    Expanded(child: search)
+                  else
+                    SizedBox(width: 220, child: search),
+                  if (!showFilters) ...<Widget>[
+                    const Gap(8),
+                    filterControls,
+                  ],
                 ],
                 const Gap(8),
                 actions,
@@ -214,7 +267,7 @@ class HomeTopBar extends StatelessWidget {
                     ),
                 ]),
               ]),
-              const Gap(8),
+              if (!inlineSearch || showFilters) const Gap(8),
               if (!inlineSearch && narrow) ...<Widget>[
                 search,
                 const Gap(8),
@@ -226,14 +279,15 @@ class HomeTopBar extends StatelessWidget {
                   filterControls,
                 ]),
               if (!inlineSearch) const Gap(8),
-              HomeStatLine(
-                controls: inlineSearch ? filterControls : null,
-                filters: filters,
-                stats: stats,
-                archiveEnabled: archiveEnabled,
-                onStateFilterSelected: onStateFilterSelected,
-                onSortSelected: onSortSelected,
-              ),
+              if (showFilters)
+                HomeStatLine(
+                  controls: inlineSearch ? filterControls : null,
+                  filters: filters,
+                  stats: stats,
+                  archiveEnabled: archiveEnabled,
+                  onStateFilterSelected: onStateFilterSelected,
+                  onSortSelected: onSortSelected,
+                ),
               StreamBuilder<double?>(
                 stream: progress.stream,
                 initialData: progress.valueOrNull,
@@ -317,6 +371,9 @@ class HomeStatLine extends StatelessWidget {
                 selected: filters.stateFilter == state.key,
                 label: '${state.value.$1}, ${state.value.$2} repositories',
                 child: Button(
+                  disableHoverEffect: true,
+                  disableTransition: true,
+                  enableFeedback: false,
                   style: filters.stateFilter == state.key
                       ? const ButtonStyle.outline(density: ButtonDensity.dense)
                       : const ButtonStyle.ghost(density: ButtonDensity.dense),
@@ -340,7 +397,8 @@ class HomeStatLine extends StatelessWidget {
                 ),
               ),
           ];
-          if (constraints.maxWidth < 420) {
+          if (constraints.maxWidth < 700 ||
+              MediaQuery.textScalerOf(context).scale(13) > 13) {
             return Wrap(spacing: 4, runSpacing: 4, children: tabs);
           }
           return Row(

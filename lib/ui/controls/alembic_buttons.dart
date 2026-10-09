@@ -42,8 +42,21 @@ class AlembicToolbarButton extends StatelessWidget {
         : compact
             ? ButtonDensity.dense
             : ButtonDensity.normal;
-    final ButtonStyle style = destructive
-        ? ButtonStyle.destructive(density: density)
+    final AbstractButtonStyle style = destructive
+        ? ButtonStyle.secondary(density: density).copyWith(
+            textStyle: (BuildContext context, Set<WidgetState> states,
+                    TextStyle value) =>
+                states.contains(WidgetState.disabled)
+                    ? value
+                    : value.copyWith(
+                        color: Theme.of(context).colorScheme.destructive),
+            iconTheme: (BuildContext context, Set<WidgetState> states,
+                    IconThemeData value) =>
+                states.contains(WidgetState.disabled)
+                    ? value
+                    : value.copyWith(
+                        color: Theme.of(context).colorScheme.destructive),
+          )
         : prominent
             ? ButtonStyle.primary(density: density)
             : quiet
@@ -79,7 +92,29 @@ class AlembicToolbarButton extends StatelessWidget {
         compact: compact,
         iconOnly: iconOnly,
         child: Button(
-            style: style, onPressed: busy ? null : onPressed, child: content),
+            disableHoverEffect: true,
+            disableTransition: true,
+            enableFeedback: false,
+            style: style.copyWith(
+              decoration: (BuildContext context, Set<WidgetState> states,
+                  Decoration decoration) {
+                if (!states.contains(WidgetState.pressed) ||
+                    states.contains(WidgetState.disabled)) {
+                  return decoration;
+                }
+                final ThemeData theme = Theme.of(context);
+                return decoration.copyWithIfBoxDecoration(
+                  color: prominent
+                      ? Color.alphaBlend(
+                          theme.colorScheme.primaryForeground
+                              .withValues(alpha: 0.12),
+                          theme.colorScheme.primary)
+                      : theme.colorScheme.accent,
+                );
+              },
+            ),
+            onPressed: busy ? null : onPressed,
+            child: content),
       ),
     );
     if (tooltip != null || iconOnly) {

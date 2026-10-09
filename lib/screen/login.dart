@@ -316,7 +316,10 @@ class _LoginSignInPanel extends StatelessWidget {
             ),
           ),
           const Gap(AlembicShadcnTokens.gapLg),
-          Row(
+          Wrap(
+            spacing: AlembicShadcnTokens.gapSm,
+            runSpacing: AlembicShadcnTokens.gapXs,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
               Text(
                 'Required scopes',
@@ -325,12 +328,10 @@ class _LoginSignInPanel extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const Gap(AlembicShadcnTokens.gapSm),
               const AlembicBadge(
                 label: 'repo',
                 tone: AlembicBadgeTone.secondary,
               ),
-              const Gap(AlembicShadcnTokens.gapXs),
               const AlembicBadge(
                 label: 'read:org',
                 tone: AlembicBadgeTone.secondary,
@@ -338,7 +339,10 @@ class _LoginSignInPanel extends StatelessWidget {
             ],
           ),
           const Gap(AlembicShadcnTokens.gapLg),
-          Row(
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            spacing: AlembicShadcnTokens.gapMd,
+            runSpacing: AlembicShadcnTokens.gapSm,
             children: <Widget>[
               AlembicToolbarButton(
                 onPressed: isSubmitting ? null : () => onGenerateToken(),
@@ -346,7 +350,6 @@ class _LoginSignInPanel extends StatelessWidget {
                 quiet: true,
                 leadingIcon: LucideIcons.externalLink,
               ),
-              const Spacer(),
               AlembicToolbarButton(
                 onPressed: _canSubmit ? () => onSubmitToken(null) : null,
                 label: isSubmitting ? 'Connecting...' : 'Connect',

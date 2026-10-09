@@ -25,24 +25,17 @@ class AlembicScaffold extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final AlembicShellProfile profile;
-  final bool insetTitlebar;
 
   const AlembicScaffold({
     super.key,
     required this.child,
     this.padding = AlembicShadcnTokens.shellPadding,
     this.profile = AlembicShellProfile.app,
-    this.insetTitlebar = true,
   });
 
   @override
   Widget build(BuildContext context) {
     ThemeData theme = Theme.of(context);
-    EdgeInsetsGeometry effectivePadding = insetTitlebar && Platform.isMacOS
-        ? padding.add(
-            const EdgeInsets.only(top: AlembicShadcnTokens.macTitlebarInset),
-          )
-        : padding;
     Color background = theme.colorScheme.background;
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -50,7 +43,7 @@ class AlembicScaffold extends StatelessWidget {
       ),
       child: SafeArea(
         child: Padding(
-          padding: effectivePadding,
+          padding: padding,
           child: Center(
             child: ConstrainedBox(
               constraints: BoxConstraints(
