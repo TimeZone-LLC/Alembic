@@ -1,5 +1,7 @@
 import 'package:alembic/app/alembic_dialogs.dart';
 import 'package:alembic/core/arcane_repository.dart';
+import 'package:alembic/core/archive_preview_service.dart';
+import 'package:alembic/screen/home/archive_preview_dialog.dart';
 import 'package:alembic/core/repository_actions_controller.dart';
 import 'package:alembic/core/repository_auth.dart';
 import 'package:alembic/screen/home/repository_auth_dialog.dart';
@@ -11,6 +13,7 @@ import 'package:github/github.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 class HomeRepositoryOperations implements RepositoryTileActionOperations {
+  static final Set<String> _archivePreviews = <String>{};
   final BuildContext context;
   final Repository repository;
   final String? accountId;
@@ -56,10 +59,31 @@ class HomeRepositoryOperations implements RepositoryTileActionOperations {
       );
 
   @override
-  Future<void> archive() => _run(
-        () => actionsController.archive(_fullName, accountId: accountId),
+  Future<void> archive() async {
+    final String key = _fullName.toLowerCase();
+    if (!context.mounted || !_archivePreviews.add(key)) return;
+    bool cancelled = false;
+    try {
+      final ArchivePreviewDecision decision =
+          await showArchivePreviewLoadingDialog(
+        context,
+        onClosed: () => cancelled = true,
+        loadPreview: () => ArchivePreviewService.instance.inspect(
+          sourcePath: arcaneRepository.repoPath,
+          destinationPath: arcaneRepository.imagePath,
+          isCancelled: () => cancelled,
+        ),
+      );
+      if (decision != ArchivePreviewDecision.archive) return;
+      await _run(
+        () => actionsController.archive(_fullName,
+            accountId: accountId, risksAcknowledged: true),
         failureTitle: 'Archive Failed',
       );
+    } finally {
+      _archivePreviews.remove(key);
+    }
+  }
 
   @override
   Future<void> deleteRepository() => _run(

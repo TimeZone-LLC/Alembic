@@ -1,5 +1,7 @@
 import 'package:alembic/app/alembic_dialogs.dart';
 import 'package:alembic/core/arcane_repository.dart';
+import 'package:alembic/core/archive_preview_service.dart';
+import 'package:alembic/screen/home/archive_preview_dialog.dart';
 import 'package:alembic/core/repository_runtime.dart';
 import 'package:alembic/screen/home/home_actions.dart';
 import 'package:alembic/screen/home/home_controller.dart';
@@ -13,6 +15,7 @@ import 'package:github/github.dart';
 
 class HomeBulkActionsCoordinator {
   static const int maxReportedFailures = 8;
+  static bool _actionsDialogOpen = false;
 
   final HomeController controller;
   final RepositoryRuntime runtime;
@@ -113,11 +116,51 @@ class HomeBulkActionsCoordinator {
   }
 
   Future<void> showActionsDialog(BuildContext context) async {
+    if (!context.mounted || _actionsDialogOpen) return;
+    _actionsDialogOpen = true;
+    try {
+      await _showActionsDialog(context);
+    } finally {
+      _actionsDialogOpen = false;
+    }
+  }
+
+  Future<void> _showActionsDialog(BuildContext context) async {
     HomeBulkAction? selected = await _pickAction(context);
     if (selected == null) {
       return;
     }
-    List<String> failed = await executeAction(selected);
+    List<String> failed;
+    if (selected == HomeBulkAction.archiveActive) {
+      final List<Repository> confirmed = <Repository>[];
+      for (final Repository repository
+          in List<Repository>.from(runtime.activeRepositories)) {
+        final ArcaneRepository arcane = controller.repositoryFor(repository);
+        if (!context.mounted) return;
+        bool cancelled = false;
+        final ArchivePreviewDecision decision =
+            await showArchivePreviewLoadingDialog(
+          context,
+          onClosed: () => cancelled = true,
+          loadPreview: () => ArchivePreviewService.instance.inspect(
+              sourcePath: arcane.repoPath,
+              destinationPath: arcane.imagePath,
+              isCancelled: () => cancelled),
+          allowSkip: true,
+        );
+        if (decision == ArchivePreviewDecision.cancel) return;
+        if (decision == ArchivePreviewDecision.archive) {
+          confirmed.add(repository);
+        }
+      }
+      failed = await executeOperation(
+          confirmed,
+          (ArcaneRepository repository) =>
+              repository.archive(risksAcknowledged: true),
+          label: HomeBulkAction.archiveActive.label);
+    } else {
+      failed = await executeAction(selected);
+    }
     if (failed.isNotEmpty && context.mounted) {
       await showAlembicInfoDialog(
         context,

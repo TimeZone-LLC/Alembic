@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/repository_runtime.dart';
+import 'package:alembic/core/repository_library_service.dart';
 import 'package:alembic/main.dart' as app;
 import 'package:alembic/screen/home/home_repository_metadata.dart';
 import 'package:alembic/screen/home/home_repository_rows.dart';
@@ -26,13 +29,21 @@ class HomeRepositoryBrowserPane extends StatefulWidget {
   final HomeEntryCallback onPrimaryAction;
   final HomeEntryActionCallback onRepositoryAction;
   final HomeEntryCallback onShowDetails;
+  final RepositoryLibrarySnapshot? library;
+  final HomeRepositoryMetadataCache? metadataCache;
+  final HomeEntryCallback? onTogglePin;
   final Future<void> Function(List<HomeRepositoryEntry> entries)
       onCloneSelected;
   final VoidCallback onClearFilters;
   final VoidCallback onImportRepository;
+  final bool collectionFiltered;
 
   const HomeRepositoryBrowserPane({
     super.key,
+    this.library,
+    this.metadataCache,
+    this.onTogglePin,
+    this.collectionFiltered = false,
     required this.entries,
     required this.totalCount,
     required this.runtime,
@@ -59,21 +70,27 @@ class _HomeRepositoryBrowserPaneState extends State<HomeRepositoryBrowserPane> {
 
   late final ScrollController _scrollController;
   late final HomeSelectionController _selection;
+  Timer? _statusRefreshTimer;
   final m.FocusNode _listFocus =
       m.FocusNode(debugLabel: 'Repository list', skipTraversal: true);
   final Map<String, m.GlobalKey> _rowKeys = <String, m.GlobalKey>{};
-  final HomeRepositoryMetadataCache _metadataCache =
+  late final HomeRepositoryMetadataCache _defaultMetadataCache =
       HomeRepositoryMetadataCache();
+  HomeRepositoryMetadataCache get _metadataCache =>
+      widget.metadataCache ?? _defaultMetadataCache;
 
   @override
   void initState() {
     super.initState();
     _scrollController = ScrollController();
     _selection = HomeSelectionController();
+    _statusRefreshTimer = Timer.periodic(
+        const Duration(seconds: 15), (_) => _refreshVisibleStatus());
   }
 
   @override
   void dispose() {
+    _statusRefreshTimer?.cancel();
     _scrollController.dispose();
     _selection.dispose();
     _listFocus.dispose();
@@ -92,8 +109,18 @@ class _HomeRepositoryBrowserPaneState extends State<HomeRepositoryBrowserPane> {
     _metadataCache.retain(visibleKeys);
   }
 
+  void _refreshVisibleStatus() {
+    final Set<String> mountedNames = <String>{
+      for (final MapEntry<String, m.GlobalKey> entry in _rowKeys.entries)
+        if (entry.value.currentContext != null) entry.key,
+    };
+    if (_metadataCache.refreshVisibleGitMetadata(mountedNames) && mounted) {
+      setState(() {});
+    }
+  }
+
   String get _subtitle {
-    if (widget.filters.hasActiveFilters) {
+    if (widget.filters.hasActiveFilters || widget.collectionFiltered) {
       int count = widget.entries.length;
       return '$count of ${widget.totalCount} repositories';
     }
@@ -169,7 +196,8 @@ class _HomeRepositoryBrowserPaneState extends State<HomeRepositoryBrowserPane> {
         Expanded(
           child: widget.entries.isEmpty
               ? _EmptyBrowser(
-                  hasActiveFilters: widget.filters.hasActiveFilters,
+                  hasActiveFilters: widget.filters.hasActiveFilters ||
+                      widget.collectionFiltered,
                   onClearFilters: widget.onClearFilters,
                   onImportRepository: widget.onImportRepository,
                 )
@@ -179,6 +207,8 @@ class _HomeRepositoryBrowserPaneState extends State<HomeRepositoryBrowserPane> {
                   child: _RepositoryList(
                     scrollController: _scrollController,
                     entries: widget.entries,
+                    library: widget.library,
+                    onTogglePin: widget.onTogglePin,
                     runtime: widget.runtime,
                     revision: widget.revision,
                     archiveEnabled: widget.archiveEnabled,
@@ -418,7 +448,7 @@ class _EmptyBrowser extends StatelessWidget {
     if (hasActiveFilters) {
       return HomeSidebarEmptyState(
         title: 'No repositories match',
-        description: 'Try another search, state, or owner filter.',
+        description: 'Try another search, collection, state, or owner filter.',
         primaryLabel: 'Clear filters',
         onPrimaryPressed: onClearFilters,
       );
@@ -449,8 +479,12 @@ class _RepositoryList extends StatelessWidget {
   final HomeEntryCallback onPrimaryAction;
   final HomeEntryActionCallback onRepositoryAction;
   final HomeEntryCallback onShowDetails;
+  final RepositoryLibrarySnapshot? library;
+  final HomeEntryCallback? onTogglePin;
 
   const _RepositoryList({
+    required this.library,
+    required this.onTogglePin,
     required this.scrollController,
     required this.entries,
     required this.runtime,
@@ -492,7 +526,7 @@ class _RepositoryList extends StatelessWidget {
           child: m.ListView.builder(
             controller: scrollController,
             padding: const EdgeInsets.only(bottom: AlembicShadcnTokens.gapSm),
-            itemExtent: uniformRows ? 70 : null,
+            itemExtent: uniformRows ? 84 : null,
             itemCount: entries.length,
             findChildIndexCallback: (key) {
               if (key is! m.ValueKey<String>) {
@@ -516,6 +550,9 @@ class _RepositoryList extends StatelessWidget {
                         entry.lowerKey, () => m.GlobalKey()),
                     onSelect: () => onSelect(entry),
                     entry: entry,
+                    pinned: library?.isPinned(entry.fullName) ?? false,
+                    onTogglePin:
+                        onTogglePin == null ? null : () => onTogglePin!(entry),
                     runtime: runtime,
                     revision: revision,
                     archiveEnabled: archiveEnabled,
@@ -527,6 +564,10 @@ class _RepositoryList extends StatelessWidget {
                         accountId: account?.id,
                       ),
                       revision: revision,
+                      includeGitStatus: entry.repoState == RepoState.active,
+                      includeGitActivity: entry.repoState == RepoState.active &&
+                          HomeRepositoryRow.showsProjectContext(
+                              context, constraints.maxWidth),
                       configuration: (
                         configuration,
                         getRepoConfig(entry.repository).json,

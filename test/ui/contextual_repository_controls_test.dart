@@ -3,6 +3,12 @@ import 'dart:io';
 import 'package:alembic/app/alembic_theme.dart';
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/repository_runtime.dart';
+import 'package:alembic/core/repository_auth.dart';
+import 'package:alembic/core/git_status_service.dart';
+import 'package:alembic/core/git_activity_service.dart';
+import 'package:alembic/widget/repository_activity_chart.dart';
+import 'package:alembic/widget/repository_latest_commit.dart';
+import 'package:alembic/screen/home/home_repository_metadata.dart';
 import 'package:alembic/domain/repository_dto.dart';
 import 'package:alembic/main.dart' as app;
 import 'package:alembic/screen/home/home_repository_browser.dart';
@@ -56,9 +62,11 @@ void main() {
     WidgetTester tester, {
     List<HomeRepositoryEntry>? repositories,
     double textScale = 1,
+    double width = 1000,
+    HomeRepositoryMetadataCache? metadataCache,
   }) async {
     final List<HomeRepositoryEntry> browserEntries = repositories ?? entries;
-    await tester.binding.setSurfaceSize(const Size(1000, 700));
+    await tester.binding.setSurfaceSize(Size(width, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(ArcaneApp(
       theme: buildAlembicTheme(),
@@ -69,6 +77,7 @@ void main() {
               child: AlembicScaffold(
                   child: HomeRepositoryBrowserPane(
                 entries: browserEntries,
+                metadataCache: metadataCache,
                 totalCount: browserEntries.length,
                 runtime: runtime,
                 revision: 0,
@@ -91,7 +100,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('selection controls follow hover and selected repository states',
+  testWidgets('hover keeps rows quiet and title clicks start selection',
       (WidgetTester tester) async {
     await pumpBrowser(tester);
     expect(find.text('Select all'), findsNothing);
@@ -104,8 +113,14 @@ void main() {
     final Finder local = find.byType(HomeRepositoryRow).first;
     await mouse.moveTo(tester.getCenter(local));
     await tester.pumpAndSettle();
-    expect(find.byType(AlembicSelectionToggle).hitTestable(), findsOneWidget);
-    expect(find.text('Open').hitTestable(), findsOneWidget);
+    expect(find.byType(AlembicSelectionToggle).hitTestable(), findsNothing);
+    expect(find.text('Open'), findsNothing);
+    expect(
+        find.descendant(of: local, matching: find.byType(AlembicToolbarButton)),
+        findsNothing);
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pumpAndSettle();
+    expect(find.byType(TooltipContainer), findsNothing);
     await mouse.moveTo(const Offset(1, 1));
     await tester.pumpAndSettle();
     expect(find.byType(AlembicSelectionToggle).hitTestable(), findsNothing);
@@ -113,7 +128,7 @@ void main() {
     await mouse.moveTo(tester.getCenter(local));
     await tester.pumpAndSettle();
     final Offset titleBefore = tester.getTopLeft(find.text('local'));
-    await tester.tap(find.byType(AlembicSelectionToggle).first);
+    await tester.tap(find.text('local'));
     await tester.pumpAndSettle();
     expect(find.text('Select all'), findsOneWidget);
     expect(find.text('Deselect all'), findsOneWidget);
@@ -127,6 +142,22 @@ void main() {
     expect(requested.map((HomeRepositoryEntry entry) => entry.dto.name),
         <String>['remote']);
     expect(find.text('Deselect all'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('right-click Open executes the repository action',
+      (WidgetTester tester) async {
+    await pumpBrowser(tester);
+    expect(find.text('Open'), findsNothing);
+    await tester.tap(find.text('local'),
+        kind: PointerDeviceKind.mouse, buttons: kSecondaryButton);
+    await tester.pumpAndSettle();
+    expect(find.text('Open').hitTestable(), findsOneWidget);
+    await tester.tap(find.text('Open').hitTestable());
+    await tester.pumpAndSettle();
+    expect(opened, <String>['owner/local']);
+    expect(inspected, isEmpty);
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -223,6 +254,124 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('visible Git status refreshes without scanning the catalog',
+      (WidgetTester tester) async {
+    int gitReads = 0;
+    int forcedReads = 0;
+    int authReads = 0;
+    String branch = 'main';
+    final HomeRepositoryMetadataCache cache = HomeRepositoryMetadataCache(
+      readAuth: (_) async {
+        authReads++;
+        return const RepoAuthInfo(
+            transport: RepoAuthTransport.httpsPublic,
+            remoteUrl: null,
+            accountId: null,
+            accountName: null,
+            accountLogin: null,
+            sshKeyPath: null,
+            sshHostAlias: null,
+            isCloned: true,
+            tokenMatchesAccount: true);
+      },
+      readMaster: (_) async => false,
+      readGitStatus: (_, {bool force = false}) async {
+        gitReads++;
+        if (force) forcedReads++;
+        return GitStatusSnapshot(
+            state: GitStatusState.ready,
+            branch: branch,
+            checkedAt: DateTime.now());
+      },
+    );
+    await pumpBrowser(tester,
+        metadataCache: cache,
+        repositories: List<HomeRepositoryEntry>.generate(
+            500, (int index) => _entry('repository-$index', RepoState.active)));
+    final int initialReads = gitReads;
+    expect(initialReads, inInclusiveRange(1, 20));
+    branch = 'feature';
+    await tester.pump(const Duration(seconds: 16));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('feature'), findsWidgets);
+    expect(forcedReads, initialReads);
+    expect(gitReads, initialReads * 2);
+    expect(authReads, initialReads);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('wide rows show cached activity without moving on hover',
+      (WidgetTester tester) async {
+    int activityReads = 0;
+    final HomeRepositoryMetadataCache cache = HomeRepositoryMetadataCache(
+      readMaster: (_) async => false,
+      readGitActivity: (_, {bool force = false}) async {
+        activityReads++;
+        return GitActivitySnapshot(
+            state: GitActivityState.ready,
+            dailyCommits:
+                List<int>.generate(30, (int day) => day % 6 == 0 ? 2 : 0),
+            startDay: DateTime.utc(2026, 9, 10),
+            endDay: DateTime.utc(2026, 10, 9),
+            checkedAt: DateTime.utc(2026, 10, 9),
+            latestCommit: GitLatestCommit(
+                subject: 'Updated local workspace',
+                author: 'Fixture',
+                committedAt: DateTime.utc(2026, 10, 9)));
+      },
+    );
+    await pumpBrowser(tester, width: 1200, metadataCache: cache);
+    expect(find.byType(RepositoryActivityChart), findsOneWidget);
+    expect(activityReads, 1);
+    expect(find.byType(RepositoryLatestCommit), findsOneWidget);
+    expect(find.text('Updated local workspace'), findsOneWidget);
+    final Rect commitBounds =
+        tester.getRect(find.byType(RepositoryLatestCommit));
+    final Rect chartBounds =
+        tester.getRect(find.byType(RepositoryActivityChart));
+    expect(chartBounds.width, greaterThan(400));
+    expect(chartBounds.height, greaterThan(50));
+    expect(commitBounds.right, lessThan(chartBounds.left));
+    final Finder local = find.byType(HomeRepositoryRow).first;
+    final Rect rowBounds = tester.getRect(local);
+    final Rect titleBounds = tester.getRect(find.text('local'));
+    expect(rowBounds.right - chartBounds.right, inInclusiveRange(12, 16));
+    final TestGesture mouse =
+        await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(1, 1));
+    addTearDown(mouse.removePointer);
+    await mouse.moveTo(tester.getCenter(find.byType(HomeRepositoryRow).first));
+    await tester.pumpAndSettle();
+    expect(tester.getRect(find.byType(RepositoryActivityChart)), chartBounds);
+    expect(tester.getRect(find.byType(RepositoryLatestCommit)), commitBounds);
+    expect(tester.getRect(local), rowBounds);
+    expect(tester.getRect(find.text('local')), titleBounds);
+    expect(find.byType(AlembicSelectionToggle).hitTestable(), findsNothing);
+    expect(find.text('Open'), findsNothing);
+    await mouse.moveTo(tester.getCenter(find.byType(RepositoryActivityChart)));
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pumpAndSettle();
+    expect(find.byType(TooltipContainer), findsNothing);
+    expect(tester.getRect(find.byType(RepositoryActivityChart)), chartBounds);
+    expect(activityReads, 1);
+    await tester.tap(find.byType(RepositoryActivityChart));
+    await tester.pumpAndSettle();
+    expect(find.text('Deselect all'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(RepositoryLatestCommit));
+    await tester.pumpAndSettle();
+    expect(find.text('Deselect all'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await pumpBrowser(tester, width: 700, metadataCache: cache);
+    expect(find.byType(RepositoryActivityChart), findsNothing);
+    expect(find.byType(RepositoryLatestCommit), findsNothing);
+    expect(activityReads, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('dense list scrolls through a large catalog with one scrollbar',
       (WidgetTester tester) async {
     final List<HomeRepositoryEntry> catalog =
@@ -233,7 +382,7 @@ void main() {
     await pumpBrowser(tester, repositories: catalog);
     expect(find.byType(Scrollbar), findsOneWidget);
     final m.ListView list = tester.widget<m.ListView>(find.byType(m.ListView));
-    expect(list.itemExtent, 70);
+    expect(list.itemExtent, 84);
     expect(find.text('repository-119'), findsNothing);
     await tester.scrollUntilVisible(find.text('repository-119'), 500,
         scrollable: find.byType(m.Scrollable), maxScrolls: 30);
@@ -279,7 +428,7 @@ void main() {
     addTearDown(mouse.removePointer);
     await mouse.moveTo(tester.getCenter(find.byType(HomeRepositoryRow).first));
     await tester.pumpAndSettle();
-    expect(find.text('Open').hitTestable(), findsOneWidget);
+    expect(find.text('Open'), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

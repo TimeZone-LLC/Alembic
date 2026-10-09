@@ -70,7 +70,7 @@ void main() {
     await source.create(recursive: true);
     await source.writeAsString('void main() {}');
 
-    await arcane.archive();
+    await arcane.archive(risksAcknowledged: true);
 
     expect(await File(arcane.imagePath).length(), greaterThan(0));
     expect(await Directory(arcane.repoPath).exists(), isFalse);
@@ -110,7 +110,8 @@ void main() {
     await source.create(recursive: true);
     await source.writeAsString('keep me');
 
-    await expectLater(arcane.archive(), throwsA(isA<StateError>()));
+    await expectLater(
+        arcane.archive(risksAcknowledged: true), throwsA(isA<StateError>()));
 
     expect(await source.readAsString(), 'keep me');
     expect(await File(arcane.imagePath).exists(), isFalse);

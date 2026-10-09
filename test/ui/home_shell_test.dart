@@ -4,10 +4,16 @@ import 'dart:ui' as ui;
 import 'package:alembic/app/alembic_theme.dart';
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/repository_runtime.dart';
+import 'package:alembic/core/repository_library_service.dart';
+import 'package:alembic/core/git_activity_service.dart';
+import 'package:alembic/screen/home/home_repository_metadata.dart';
 import 'package:alembic/domain/repository_dto.dart';
 import 'package:alembic/main.dart' as app;
 import 'package:alembic/screen/home/home_repository_browser.dart';
+import 'package:alembic/screen/home/home_repository_rows.dart';
 import 'package:alembic/screen/home/home_sidebar.dart';
+import 'package:alembic/widget/repository_activity_chart.dart';
+import 'package:alembic/widget/repository_latest_commit.dart';
 import 'package:alembic/screen/home/home_top_bar.dart';
 import 'package:alembic/screen/home/home_view_filters.dart';
 import 'package:alembic/ui/alembic_ui.dart';
@@ -73,7 +79,7 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  for (final double width in <double>[600, 920, 1380]) {
+  for (final double width in <double>[420, 600, 920, 1080, 1380]) {
     for (final ThemeMode mode in <ThemeMode>[ThemeMode.light, ThemeMode.dark]) {
       for (final double textScale in <double>[1, 2]) {
         testWidgets(
@@ -89,6 +95,28 @@ void main() {
               textScale: textScale,
               capture: capture);
           expect(tester.takeException(), isNull);
+          expect(
+              find.byType(RepositoryActivityChart),
+              width >= 1080 && textScale == 1
+                  ? findsNWidgets(3)
+                  : findsNothing);
+          expect(
+              find.byType(RepositoryLatestCommit),
+              width >= 1080 && textScale == 1
+                  ? findsNWidgets(3)
+                  : findsNothing);
+          if (width >= 1080 && textScale == 1) {
+            final Finder row = find.byType(HomeRepositoryRow).first;
+            final Rect identity = tester.getRect(find.text('local-workspace'));
+            final Rect commit = tester.getRect(find.descendant(
+                of: row, matching: find.byType(RepositoryLatestCommit)));
+            final Rect graph = tester.getRect(find.descendant(
+                of: row, matching: find.byType(RepositoryActivityChart)));
+            expect(identity.right, lessThan(commit.left));
+            expect(commit.right, lessThanOrEqualTo(graph.left));
+            expect(tester.getRect(row).right - graph.right,
+                inInclusiveRange(12, 16));
+          }
           expect(find.byType(HomeSidebar),
               width >= 820 ? findsOneWidget : findsNothing);
           expect(find.byType(HomeTopBar), findsOneWidget);
@@ -289,6 +317,16 @@ Future<void> _pumpShell(
                           SizedBox(
                             width: AlembicShadcnTokens.sidebarWidth,
                             child: HomeSidebar(
+                              library: controller.library,
+                              selectedCollection:
+                                  const RepositoryCollection.pinned(),
+                              repositoryNames: controller.entries.map(
+                                  (HomeRepositoryEntry entry) =>
+                                      entry.fullName),
+                              onCollectionSelected: (_) =>
+                                  controller.record('Collection'),
+                              onManageGroups: () =>
+                                  controller.record('Manage library'),
                               filters: filters,
                               stats: _stats,
                               owners: _owners,
@@ -305,6 +343,15 @@ Future<void> _pumpShell(
                                 padding:
                                     const EdgeInsets.fromLTRB(16, 16, 16, 12),
                                 child: HomeTopBar(
+                                  library: controller.library,
+                                  selectedCollection:
+                                      const RepositoryCollection.pinned(),
+                                  onCollectionSelected: (_) =>
+                                      controller.record('Collection'),
+                                  onManageLibrary: () =>
+                                      controller.record('Manage library'),
+                                  onQuickSwitcher: () =>
+                                      controller.record('Quick switcher'),
                                   filters: filters,
                                   stats: _stats,
                                   owners: _owners,
@@ -347,6 +394,10 @@ Future<void> _pumpShell(
                                   canForkRepository: (_) => true,
                                   onPrimaryAction: (_) async {},
                                   onRepositoryAction: (_, __) async {},
+                                  metadataCache: controller.metadata,
+                                  library: controller.library,
+                                  onTogglePin: (_) async =>
+                                      controller.record('Pin'),
                                   onShowDetails: (_) async {},
                                   onCloneSelected: (_) async {},
                                   onClearFilters: () => controller.filters
@@ -373,6 +424,43 @@ Future<void> _pumpShell(
 }
 
 class _ShellController {
+  final HomeRepositoryMetadataCache metadata = HomeRepositoryMetadataCache(
+    readGitActivity: (String path, {bool force = false}) async =>
+        GitActivitySnapshot(
+            state: GitActivityState.ready,
+            dailyCommits: List<int>.generate(
+                30,
+                (int day) => path.endsWith('local-tools')
+                    ? (day % 5 == 0 ? 4 : 0)
+                    : (day % 4 == 0
+                        ? 2
+                        : day % 7 == 0
+                            ? 1
+                            : 0)),
+            startDay: DateTime.utc(2026, 9, 10),
+            endDay: DateTime.utc(2026, 10, 9),
+            checkedAt: DateTime.utc(2026, 10, 9),
+            latestCommit: GitLatestCommit(
+              subject: path.endsWith('local-tools')
+                  ? 'Move repository actions into the context menu'
+                  : path.endsWith('local-utilities')
+                      ? 'Preserve selection when switching filters'
+                      : 'Keep repository scans asynchronous',
+              author: 'Fixture Author',
+              committedAt: DateTime.now().toUtc().subtract(Duration(
+                  minutes: path.endsWith('local-tools')
+                      ? 90
+                      : path.endsWith('local-utilities')
+                          ? 4320
+                          : 9)),
+            )),
+  );
+  final RepositoryLibrarySnapshot library = RepositoryLibrarySnapshot(
+    pinnedRepositoryNames: <String>['TestFixtures/local-workspace'],
+    groups: <RepositoryGroup>[
+      RepositoryGroup(id: 'group-1', name: 'Desktop projects')
+    ],
+  );
   final RepositoryRuntime runtime = RepositoryRuntime();
   final List<HomeRepositoryEntry> entries = <HomeRepositoryEntry>[
     _fixture('local-workspace', RepoState.active, 'Dart'),

@@ -3,6 +3,10 @@ import 'dart:async';
 import 'package:alembic/app/alembic_dialogs.dart';
 import 'package:alembic/bloc/repository_list_store.dart';
 import 'package:alembic/core/account_registry.dart';
+import 'package:alembic/core/repository_library_service.dart';
+import 'package:alembic/core/git_status_service.dart';
+import 'package:alembic/core/git_activity_service.dart';
+import 'package:alembic/screen/home/repository_library_dialog.dart';
 import 'package:alembic/core/arcane_repository.dart';
 import 'package:alembic/core/archive_master_service.dart';
 import 'package:alembic/core/repository_actions_controller.dart';
@@ -16,6 +20,7 @@ import 'package:alembic/screen/home/home_activity_strip.dart';
 import 'package:alembic/screen/home/home_bulk_actions.dart';
 import 'package:alembic/screen/home/home_clone_dialog.dart';
 import 'package:alembic/screen/home/home_controller.dart';
+import 'package:alembic/screen/home/home_quick_switcher.dart';
 import 'package:alembic/screen/home/home_repository_browser.dart';
 import 'package:alembic/screen/home/home_repository_operations.dart';
 import 'package:alembic/screen/home/home_repository_rows.dart';
@@ -73,6 +78,11 @@ class _AlembicHomeState extends State<AlembicHome> {
   final m.FocusNode _searchFocusNode =
       m.FocusNode(debugLabel: 'Repository search');
   bool _sidebarVisible = true;
+  bool _quickSwitcherOpen = false;
+  bool _libraryDialogOpen = false;
+  RepositoryLibraryService? _library;
+  String? _libraryError;
+  RepositoryCollection _collection = const RepositoryCollection.all();
 
   StreamSubscription<RepositoryListState>? _listSubscription;
   StreamSubscription<WorkspaceScanSnapshot>? _scanSubscription;
@@ -90,6 +100,7 @@ class _AlembicHomeState extends State<AlembicHome> {
   @override
   void initState() {
     super.initState();
+    _loadLibrary();
     _searchController = m.TextEditingController();
     _sidebarVisible =
         boxSettings.get('home_sidebar_visible', defaultValue: true) != false;
@@ -149,6 +160,8 @@ class _AlembicHomeState extends State<AlembicHome> {
 
   @override
   void dispose() {
+    _library?.removeListener(_onLibraryChanged);
+    _library?.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
     _listSubscription?.cancel();
@@ -159,6 +172,81 @@ class _AlembicHomeState extends State<AlembicHome> {
     unawaited(_controller.dispose());
     unawaited(_updatesHook.dispose());
     super.dispose();
+  }
+
+  void _loadLibrary() {
+    try {
+      _library = RepositoryLibraryService.fromCurrentStorage();
+      _library!.addListener(_onLibraryChanged);
+      _libraryError = null;
+    } catch (failure) {
+      _libraryError = 'Could not load the repository library: $failure';
+    }
+  }
+
+  void _onLibraryChanged() {
+    if (!mounted) return;
+    setState(() {
+      if (_collection.kind == RepositoryCollectionKind.group &&
+          _library?.snapshot.groupById(_collection.groupId) == null) {
+        _collection = const RepositoryCollection.all();
+      }
+    });
+  }
+
+  void _selectCollection(RepositoryCollection collection) {
+    setState(() => _collection = collection);
+  }
+
+  Future<void> _manageLibrary() async {
+    if (_libraryDialogOpen) return;
+    _libraryDialogOpen = true;
+    try {
+      if (_library == null) {
+        _loadLibrary();
+        if (mounted) setState(() {});
+      }
+      final RepositoryLibraryService? library = _library;
+      if (library == null) {
+        if (mounted) {
+          await showAlembicInfoDialog(context,
+              title: 'Repository library unavailable',
+              message: _libraryError ?? 'Try reopening the library.');
+        }
+        return;
+      }
+      final List<HomeRepositoryEntry> entries =
+          _controller.buildEntries(listState: _listState, snapshot: _snapshot);
+      await showRepositoryLibraryDialog(context,
+          service: library,
+          repositoryNames:
+              entries.map((HomeRepositoryEntry entry) => entry.fullName),
+          initialCollection: _collection.kind == RepositoryCollectionKind.all
+              ? const RepositoryCollection.pinned()
+              : _collection);
+    } finally {
+      _libraryDialogOpen = false;
+    }
+  }
+
+  Future<void> _togglePin(HomeRepositoryEntry entry) async {
+    try {
+      await _library?.togglePinned(entry.fullName);
+    } catch (failure) {
+      if (mounted) {
+        await showAlembicInfoDialog(context,
+            title: 'Could not save pin', message: '$failure');
+      }
+    }
+  }
+
+  void _invalidateGitMetadata() {
+    for (final Repository repository in widget.store.cachedRepositories) {
+      final String path = _controller.repositoryFor(repository).repoPath;
+      GitStatusService.instance.invalidate(path);
+      GitActivityService.instance.invalidate(path);
+    }
+    _revision++;
   }
 
   void _refreshState() {
@@ -225,6 +313,51 @@ class _AlembicHomeState extends State<AlembicHome> {
     if (action == AlembicTrayMenuAction.toggleSidebar) {
       _toggleSidebar();
     }
+    if (action == AlembicTrayMenuAction.quickSwitcher) {
+      unawaited(_openQuickSwitcher());
+    }
+  }
+
+  Future<void> _openQuickSwitcher() async {
+    if (_quickSwitcherOpen) return;
+    _quickSwitcherOpen = true;
+    final List<HomeRepositoryEntry> entries = _controller.buildEntries(
+      listState: _listState,
+      snapshot: _snapshot,
+    );
+    QuickSwitcherSelection? selection;
+    try {
+      selection = await showHomeQuickSwitcher(context,
+          entries: entries,
+          pinnedRepositoryNames:
+              _library?.snapshot.pinnedRepositoryNames ?? const <String>{});
+    } finally {
+      _quickSwitcherOpen = false;
+    }
+    if (!mounted || selection == null) return;
+    final HomeRepositoryEntry entry = selection.entry;
+    if (selection.action == QuickRepositoryAction.inspect) {
+      await _showRepositoryDetails(entry);
+      return;
+    }
+    final String? accountId =
+        _controller.accountIdForRepository(entry.repository);
+    final RepositoryActionResult result = await switch (selection.action) {
+      QuickRepositoryAction.open =>
+        widget.actionsController.open(entry.fullName, accountId: accountId),
+      QuickRepositoryAction.reveal => widget.actionsController
+          .openInFinder(entry.fullName, accountId: accountId),
+      QuickRepositoryAction.pull =>
+        widget.actionsController.pull(entry.fullName, accountId: accountId),
+      QuickRepositoryAction.inspect =>
+        throw StateError('Inspect already handled'),
+    };
+    if (!result.ok && mounted) {
+      await showAlembicInfoDialog(context,
+          title: 'Repository action failed',
+          message: result.error ?? 'Try again from the repository inspector.');
+    }
+    await _afterMutation();
   }
 
   void _focusSearch() {
@@ -290,6 +423,7 @@ class _AlembicHomeState extends State<AlembicHome> {
   void _clearFilters() {
     _searchController.clear();
     setState(() {
+      _collection = const RepositoryCollection.all();
       _filters = _filters.copyWith(
         stateFilter: HomeStateFilter.all,
         clearOwnerFilter: true,
@@ -300,11 +434,15 @@ class _AlembicHomeState extends State<AlembicHome> {
   }
 
   Future<void> _refreshRepositories() async {
+    _invalidateGitMetadata();
     unawaited(widget.scanService.rescan());
     await widget.store.refresh();
   }
 
-  Future<void> _afterMutation() => widget.scanService.rescan();
+  Future<void> _afterMutation() async {
+    _invalidateGitMetadata();
+    await widget.scanService.rescan();
+  }
 
   Future<void> _openPrimaryRepositoryAction(HomeRepositoryEntry entry) async {
     String? accountId = _controller.accountIdForRepository(entry.repository);
@@ -440,6 +578,13 @@ class _AlembicHomeState extends State<AlembicHome> {
       entries: entries,
       filters: _filters,
     );
+    final RepositoryLibrarySnapshot? library = _library?.snapshot;
+    if (library != null) {
+      visible = visible
+          .where((HomeRepositoryEntry entry) =>
+              library.contains(_collection, entry.fullName))
+          .toList();
+    }
     bool loading = _listState.status == RepositoryListStatus.loading;
     bool showList = entries.isNotEmpty;
 
@@ -463,6 +608,9 @@ class _AlembicHomeState extends State<AlembicHome> {
       content = _HomeReadyLayout(
         entries: entries,
         visibleEntries: visible,
+        library: library,
+        collectionFiltered: _collection.kind != RepositoryCollectionKind.all,
+        onTogglePin: _library == null ? null : _togglePin,
         filters: _filters,
         runtime: widget.runtime,
         revision: _revision,
@@ -491,6 +639,12 @@ class _AlembicHomeState extends State<AlembicHome> {
                 SizedBox(
                   width: AlembicShadcnTokens.sidebarWidth,
                   child: HomeSidebar(
+                    library: library,
+                    selectedCollection: _collection,
+                    repositoryNames: entries
+                        .map((HomeRepositoryEntry entry) => entry.fullName),
+                    onCollectionSelected: _selectCollection,
+                    onManageGroups: () => unawaited(_manageLibrary()),
                     filters: _filters,
                     stats: stats,
                     owners: owners,
@@ -506,6 +660,10 @@ class _AlembicHomeState extends State<AlembicHome> {
                   Padding(
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
                       child: HomeTopBar(
+                        library: library,
+                        selectedCollection: _collection,
+                        onCollectionSelected: _selectCollection,
+                        onManageLibrary: () => unawaited(_manageLibrary()),
                         searchFocusNode: _searchFocusNode,
                         onToggleSidebar: canShowSidebar ? _toggleSidebar : null,
                         showFilters: !hasSidebar,
@@ -528,6 +686,7 @@ class _AlembicHomeState extends State<AlembicHome> {
                         onBulkActions: () =>
                             unawaited(_bulkActions.showActionsDialog(context)),
                         onOpenSettings: _openSettings,
+                        onQuickSwitcher: () => unawaited(_openQuickSwitcher()),
                       )),
                   Divider(color: Theme.of(context).colorScheme.border),
                   if (showList &&
@@ -582,6 +741,10 @@ class _AlembicHomeState extends State<AlembicHome> {
             _focusSearch,
         const m.SingleActivator(services.LogicalKeyboardKey.keyF,
             control: true): _focusSearch,
+        const m.SingleActivator(services.LogicalKeyboardKey.keyK, meta: true):
+            () => unawaited(_openQuickSwitcher()),
+        const m.SingleActivator(services.LogicalKeyboardKey.keyK,
+            control: true): () => unawaited(_openQuickSwitcher()),
         const m.SingleActivator(services.LogicalKeyboardKey.keyS,
             meta: true, alt: true): _toggleSidebar,
         const m.SingleActivator(services.LogicalKeyboardKey.keyI,
@@ -608,6 +771,9 @@ class _HomeReadyLayout extends StatelessWidget {
       onCloneSelected;
   final VoidCallback onClearFilters;
   final VoidCallback onImportRepository;
+  final RepositoryLibrarySnapshot? library;
+  final bool collectionFiltered;
+  final HomeEntryCallback? onTogglePin;
 
   const _HomeReadyLayout({
     required this.entries,
@@ -624,6 +790,9 @@ class _HomeReadyLayout extends StatelessWidget {
     required this.onCloneSelected,
     required this.onClearFilters,
     required this.onImportRepository,
+    required this.library,
+    required this.collectionFiltered,
+    required this.onTogglePin,
   });
 
   @override
@@ -634,6 +803,9 @@ class _HomeReadyLayout extends StatelessWidget {
           Expanded(
             child: HomeRepositoryBrowserPane(
               entries: visibleEntries,
+              library: library,
+              collectionFiltered: collectionFiltered,
+              onTogglePin: onTogglePin,
               totalCount: entries.length,
               runtime: runtime,
               revision: revision,

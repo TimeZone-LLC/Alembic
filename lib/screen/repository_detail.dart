@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:alembic/core/repository_actions_controller.dart';
+import 'package:alembic/core/archive_preview_service.dart';
+import 'package:alembic/screen/home/archive_preview_dialog.dart';
+import 'package:alembic/screen/repository_worktrees.dart';
 import 'package:alembic/core/repository_runtime.dart';
 import 'package:alembic/core/repository_runtime_instance.dart';
 import 'package:alembic/domain/repository_list_status.dart';
@@ -58,6 +61,16 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
   List<RepositoryWork> _workEntries = <RepositoryWork>[];
   StreamSubscription<List<RepositoryWork>>? _workSubscription;
   String? _busyAction;
+  bool _worktreeBusy = false;
+  bool _worktreesVisited = false;
+
+  String? get _effectiveBusyAction =>
+      _busyAction ??
+      (_worktreeBusy
+          ? 'Worktrees'
+          : _workEntries.isNotEmpty
+              ? 'Repository operation'
+              : null);
   String? _successMessage;
   String? _errorMessage;
   String? _loadError;
@@ -146,7 +159,7 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
     String label,
     Future<RepositoryActionResult> Function() operation,
   ) async {
-    if (_busyAction != null) {
+    if (_effectiveBusyAction != null) {
       return;
     }
     setState(() {
@@ -199,10 +212,7 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
             action.label,
             () => repositoryActionsController.fork(widget.fullName),
           ),
-        _DetailAction.archive => _runAction(
-            action.label,
-            () => repositoryActionsController.archive(widget.fullName),
-          ),
+        _DetailAction.archive => _archiveWithPreview(),
         _DetailAction.unarchive => _runAction(
             action.label,
             () => repositoryActionsController.unarchive(widget.fullName),
@@ -238,6 +248,43 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
           ),
         _DetailAction.unenrollMaster => _confirmUnenrollMaster(),
       };
+
+  Future<void> _archiveWithPreview() async {
+    if (_effectiveBusyAction != null) return;
+    ArchivePreviewDecision decision = ArchivePreviewDecision.cancel;
+    bool cancelled = false;
+    setState(() {
+      _busyAction = 'Checking archive';
+      _successMessage = null;
+      _errorMessage = null;
+    });
+    try {
+      decision = await showArchivePreviewLoadingDialog(
+        context,
+        onClosed: () => cancelled = true,
+        loadPreview: () async {
+          final ArchivePreview? preview = await repositoryActionsController
+              .getArchivePreview(widget.fullName, isCancelled: () => cancelled);
+          if (preview == null) {
+            throw StateError('Repository is no longer available');
+          }
+          return preview;
+        },
+      );
+    } catch (failure) {
+      if (mounted) {
+        setState(() => _errorMessage = 'Could not preview archive: $failure');
+      }
+    } finally {
+      if (mounted) setState(() => _busyAction = null);
+    }
+    if (mounted && decision == ArchivePreviewDecision.archive) {
+      await _runAction(
+          _DetailAction.archive.label,
+          () => repositoryActionsController.archive(widget.fullName,
+              risksAcknowledged: true));
+    }
+  }
 
   Future<void> _confirmDeleteLocal() => DialogConfirm(
         title: 'Delete local copy?',
@@ -386,7 +433,7 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
                             padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
                             child: _DetailToolbar(
                               state: detail.state,
-                              busyAction: _busyAction,
+                              busyAction: _effectiveBusyAction,
                               onAction: _handleAction,
                             ),
                           ),
@@ -400,7 +447,12 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
                             child: _InspectorSections(
                               selected: _section,
                               onChanged: (_InspectorSection section) =>
-                                  setState(() => _section = section),
+                                  setState(() {
+                                _section = section;
+                                if (section == _InspectorSection.worktrees) {
+                                  _worktreesVisited = true;
+                                }
+                              }),
                             ),
                           ),
                         ],
@@ -425,33 +477,86 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
                           const Gap(AlembicShadcnTokens.gapMd),
                         ],
                         Expanded(
-                          child: SingleChildScrollView(
-                            key: ValueKey<_InspectorSection>(_section),
-                            padding: const EdgeInsets.fromLTRB(20, 6, 20, 20),
-                            child: ready
-                                ? _DetailContent(
-                                    section: _section,
-                                    repository: repository,
-                                    detail: detail,
-                                    repoConfig: repoConfig,
-                                    workEntries: _workEntries,
-                                    busyAction: _busyAction,
-                                    archiveEnabled: _archiveEnabled,
-                                    enrolledInArchiveMaster:
-                                        _enrolledInArchiveMaster,
-                                    accounts: loadGitAccounts(),
-                                    openDirectoryController:
-                                        _openDirectoryController,
-                                    onAction: _handleAction,
-                                    onEditorChanged: _setEditorOverride,
-                                    onGitToolChanged: _setGitToolOverride,
-                                    onAccountChanged: _setAccountOverride,
-                                    onOpenDirectoryChanged: _setOpenDirectory,
-                                  )
-                                : _DetailLoadingState(
-                                    error: _loadError,
-                                    onRetry: () => unawaited(_refreshDetail()),
-                                  ),
+                          child: m.IndexedStack(
+                            index:
+                                _section == _InspectorSection.worktrees ? 1 : 0,
+                            sizing: m.StackFit.expand,
+                            children: <Widget>[
+                              SingleChildScrollView(
+                                key: ValueKey<_InspectorSection>(_section),
+                                padding:
+                                    const EdgeInsets.fromLTRB(20, 6, 20, 20),
+                                child: ready
+                                    ? _DetailContent(
+                                        section: _section,
+                                        repository: repository,
+                                        detail: detail,
+                                        repoConfig: repoConfig,
+                                        workEntries: _workEntries,
+                                        busyAction: _effectiveBusyAction,
+                                        archiveEnabled: _archiveEnabled,
+                                        enrolledInArchiveMaster:
+                                            _enrolledInArchiveMaster,
+                                        accounts: loadGitAccounts(),
+                                        openDirectoryController:
+                                            _openDirectoryController,
+                                        onAction: _handleAction,
+                                        onEditorChanged: _setEditorOverride,
+                                        onGitToolChanged: _setGitToolOverride,
+                                        onAccountChanged: _setAccountOverride,
+                                        onOpenDirectoryChanged:
+                                            _setOpenDirectory,
+                                      )
+                                    : _DetailLoadingState(
+                                        error: _loadError,
+                                        onRetry: () =>
+                                            unawaited(_refreshDetail()),
+                                      ),
+                              ),
+                              if (_worktreesVisited &&
+                                  ready &&
+                                  detail.state == 'active')
+                                RepositoryWorktreesPane(
+                                  key: ValueKey<String>(detail.repoPath),
+                                  repositoryPath: detail.repoPath,
+                                  editorTool: repoConfig.editorTool ??
+                                      config.editorTool,
+                                  enabled: _busyAction == null &&
+                                      _workEntries.isEmpty,
+                                  onBusyChanged: (bool busy) {
+                                    if (mounted) {
+                                      setState(() => _worktreeBusy = busy);
+                                    }
+                                  },
+                                )
+                              else
+                                Center(
+                                    child: Padding(
+                                  padding: const EdgeInsets.all(20),
+                                  child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: <Widget>[
+                                        const Text(
+                                            'Make this repository local to manage Git worktrees.'),
+                                        const Gap(12),
+                                        if (ready && detail.state != 'active')
+                                          AlembicToolbarButton(
+                                            label: detail.state == 'archived'
+                                                ? 'Restore repository'
+                                                : 'Clone repository',
+                                            leadingIcon: LucideIcons.download,
+                                            onPressed: _effectiveBusyAction !=
+                                                    null
+                                                ? null
+                                                : () => _handleAction(
+                                                    detail.state == 'archived'
+                                                        ? _DetailAction
+                                                            .unarchive
+                                                        : _DetailAction.clone),
+                                          ),
+                                      ]),
+                                )),
+                            ],
                           ),
                         ),
                       ],
@@ -470,7 +575,8 @@ class _RepositoryDetailDialogState extends State<RepositoryDetailDialog> {
 enum _InspectorSection {
   overview('Overview'),
   configuration('Configuration'),
-  storage('Storage');
+  storage('Storage'),
+  worktrees('Worktrees');
 
   final String label;
   const _InspectorSection(this.label);

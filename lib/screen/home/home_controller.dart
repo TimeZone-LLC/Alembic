@@ -149,8 +149,11 @@ class HomeController {
         if (!stale) {
           continue;
         }
-        warn('${repo.fullName} is stale, archiving');
-        await repository.archive();
+        try {
+          await repository.archive();
+        } catch (failure) {
+          warn('Skipped automatic archive of ${repo.fullName}: $failure');
+        }
       }
     } finally {
       _staleCheckRunning = false;

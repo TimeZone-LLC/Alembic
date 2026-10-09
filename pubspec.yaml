@@ -1,7 +1,7 @@
 name: alembic
 description: "Desktop GitHub workspace and archive manager."
 publish_to: 'none'
-version: 1.5.2
+version: 1.5.3
 environment:
   sdk: '>=3.4.4 <4.0.0'
 dependencies:
